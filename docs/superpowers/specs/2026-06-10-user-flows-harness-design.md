@@ -27,6 +27,8 @@ Verification steps are tagged by executor:
 
 Claude runs `[API]`/`[DISK]`/`[BROWSER]` itself and hands the user a short `[HUMAN]` checklist at the end.
 
+**Degradation rule:** `[BROWSER]` steps require a browser-automation tool in the session (e.g. Claude Code browser control or a Playwright MCP). When none is available, each `[BROWSER]` step is reported as NOT RUN and added to the `[HUMAN]` checklist — never silently skipped.
+
 ## Coverage: tiered
 
 - **Tier 1 (~14 flows, full depth):** Upload→annotate, Resume session, Click segmentation + undo, Box segmentation, Text detection, Single-object propagation, Multi-object propagation, Cancel propagation, Propagation reconnect (tab close/reopen), Mask deletion (single + batch), Close session (incl. GCS-failure retry path), Export COCO, Export/Import session zip, Recovery (container restart / error phase / state version conflict).
@@ -84,7 +86,7 @@ tests/fixtures/harness/
 - `fixture.json` makes `[API]`/`[BROWSER]` steps deterministic: known click coordinates on a known frame.
 - **Mask comparison rule:** new segmentation output vs. golden masks uses **IoU ≥ 0.80** (SAM3 is not bit-exact across MPS/CUDA). **Byte-equality** is reserved for "untouched data didn't change" checks (e.g., N1).
 - `golden_session.zip` doubles as the import-flow test asset.
-- The sample video is recorded/provided by Danilo; goldens are generated on his Mac (MPS backend) during implementation.
+- **Division of labor:** Danilo provides only the raw sample video (5–10 s, any ffmpeg-readable format, 2–3 visually distinct objects that persist across frames). Claude does everything else during implementation: uploads it through the app (MPS backend), reads the extracted frame images to choose canonical click coordinates, segments and propagates the objects, exports the session as `golden_session.zip`, and writes `fixture.json` and the README. No fixture work falls on the user.
 
 ## Impact map
 
