@@ -11,9 +11,8 @@ nginx
 
 # Start gunicorn (foreground) — 1 worker because SAM3 state (GPU model,
 # sync manager, session cache) is in-process. gunicorn_config.py enforces
-# the single-worker invariant at startup; see docs/CONCURRENCY_AUDIT.md §
-# R38. If someone edits --workers below, the config hook will refuse to
-# start the container.
+# the single-worker invariant at startup. If someone edits --workers
+# below, the config hook will refuse to start the container.
 exec gunicorn \
     --config /app/backend/gunicorn_config.py \
     --worker-class gthread \

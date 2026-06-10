@@ -33,7 +33,7 @@ class SessionCache:
         # under `session_io_lock` in RMW paths, but also taken
         # standalone by GET readers. Nothing inside SessionCache acquires
         # any other lock in the hierarchy. See
-        # docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+        # docs/TECHNICAL_REPORT.md § Concurrency model.
         self._lock = threading.RLock()
 
     @property

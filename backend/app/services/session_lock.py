@@ -24,11 +24,10 @@ from collections import OrderedDict
 # the same session_id will be issued a fresh lock. The lost-update
 # window requires 1024 *other* session_ids to be touched between two
 # accesses to the same session_id, which is not reachable in practice.
-# See docs/CONCURRENCY_AUDIT.md § R19.
 _LOCK_CACHE_CAP = 1024
 
 # Lock hierarchy: `_locks_guard` is a leaf — see
-# docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+# docs/TECHNICAL_REPORT.md § Concurrency model.
 _locks: "OrderedDict[str, threading.Lock]" = OrderedDict()
 _locks_guard = threading.Lock()
 
@@ -40,7 +39,7 @@ def session_io_lock(session_id: str) -> threading.Lock:
     AFTER `SAM3._state_lock` and `SAM3._lock`, BEFORE
     `SessionCache._lock`, `_globals_lock`, and
     `GCSSyncManager._lock`. See
-    docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+    docs/TECHNICAL_REPORT.md § Concurrency model.
     """
     with _locks_guard:
         lock = _locks.get(session_id)

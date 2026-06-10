@@ -4,8 +4,6 @@ Regression: nothing in the Python process used to assert that gunicorn
 was actually running with --workers 1. If deploy/entrypoint.sh drifted
 to --workers 2, two processes would race on sessions/ with their own
 in-process singletons and silently corrupt data.
-
-See docs/CONCURRENCY_AUDIT.md § R38, GitHub issue #89.
 """
 from __future__ import annotations
 

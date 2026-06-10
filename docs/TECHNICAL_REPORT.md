@@ -86,7 +86,22 @@ Cloud Run is built for stateless request handlers; this service is deliberately 
 
 **Boot detection.** `/api/status` includes a `boot_id`; when the frontend sees it change, it knows the container was recycled and re-runs session resume instead of trusting stale client state.
 
-The concurrency design — lock hierarchy, reader/writer rules on the session cache, sync-manager lifecycle — is documented exhaustively in [CONCURRENCY_AUDIT.md](CONCURRENCY_AUDIT.md).
+### Concurrency model
+
+One process owns everything: gunicorn is pinned to a single worker (`gunicorn_config.py` refuses to start with more — forking would silently diverge the in-process singletons) running 4 threads, with Cloud Run admitting up to 8 concurrent requests. Within that process, locks follow a strict acquire order — a thread may take a higher-numbered lock while holding a lower-numbered one, never the reverse:
+
+| Level | Lock | Guards |
+|---|---|---|
+| 1 | `SAM3Service._state_lock` | `ServiceState` (phase) transitions |
+| 2 | `SAM3Service._lock` (RLock) | all SAM3 predictor / GPU access |
+| 3 | `session_io_lock(session_id)` | per-session file I/O (state/masks/prompts) |
+| 4 | `SessionCache._lock` | the active session's in-memory file cache |
+| 5 | `config._globals_lock` | the active (sync manager, session cache) slots |
+| 6 | `GCSSyncManager._lock` | dirty/deferred sets and the flush timer |
+
+Leaf locks (`SAM3Service._propagation_lock`, the lock-map guards, the session-list cache locks) are never held together with anything else. The one known deadlock signature — taking `session_io_lock` and then asking for `SAM3._lock` while a propagation holds `_lock` and calls a persist function that needs `session_io_lock` — is regression-tested in `test_sam3_service.py`. Sync-manager lifecycle is the other load-bearing invariant: the active (sync manager, session cache) pair is swapped atomically under `_globals_lock`, the outgoing manager is stopped *outside* the lock (its final flush does GCS I/O), and any flush failure persists an `.unsynced` marker so the next resume re-uploads the delta.
+
+Comments and test names cite finding IDs (`R7`, `R8`, `H5`, …) from the internal concurrency audit that hardened this backend. The audit itself isn't shipped, but the IDs remain as stable cross-reference labels tying each invariant's implementation comment to its regression tests.
 
 ## Docker layer caching
 
@@ -129,7 +144,6 @@ Local development on a Mac runs the HF backend on MPS, with three non-obvious co
 
 - [MASK_FRAME_STREAMING.md](MASK_FRAME_STREAMING.md) — how the frontend and backend minimize bandwidth while editing: RLE-everywhere masks, version-vector delta sync, IndexedDB caches, and server-push propagation streaming.
 - [blog/sam3-native-cuda-the-dtype-maze.md](../blog/sam3-native-cuda-the-dtype-maze.md) — the full T4 → L4 story: every dtype failure mode, every patch, and the benchmark data behind the GPU selection rule.
-- [CONCURRENCY_AUDIT.md](CONCURRENCY_AUDIT.md) — the backend's full concurrency model: lock hierarchy, sync-manager lifecycle, and the findings (open and fixed) from hardening it.
 
 ---
 

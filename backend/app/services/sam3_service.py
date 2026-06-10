@@ -278,7 +278,7 @@ class SAM3Service:
         # audited against the start_pipeline probe pattern (see
         # `start_pipeline` for the canonical "probe _lock non-blocking
         # before taking _state_lock" inversion fix). See
-        # docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+        # docs/TECHNICAL_REPORT.md § Concurrency model.
         self._lock = threading.RLock()
         self._sessions = {}                 # session_id -> inference session (HF or native)
         self._session_meta = {}             # session_id -> {height, width, num_frames, frames_dir}
@@ -293,8 +293,8 @@ class SAM3Service:
         # because no call site acquires `_lock` while holding
         # `_propagation_lock`. Iteration of the subscribers list is done
         # via a snapshot taken under the lock so the lock is released
-        # before any `queue.put_nowait`. See docs/CONCURRENCY_AUDIT.md §
-        # Lock hierarchy.
+        # before any `queue.put_nowait`. See docs/TECHNICAL_REPORT.md §
+        # Concurrency model.
         self._propagation_lock = threading.Lock()
         self._propagation_state = {}        # session_id -> {status, start_frame, reverse, frames_processed}
         self._propagation_subscribers = {}  # session_id -> [queue.Queue, ...]
@@ -305,7 +305,7 @@ class SAM3Service:
         # Lock hierarchy: `_state_lock` is level #1 (topmost). Held
         # briefly for `ServiceState` transitions. `finalize_close`
         # deliberately nests `_globals_lock` underneath it. See
-        # docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+        # docs/TECHNICAL_REPORT.md § Concurrency model.
         self._state_lock = threading.Lock()
         self._service_state = ServiceState()
         self._pipeline_thread: threading.Thread | None = None
@@ -318,7 +318,7 @@ class SAM3Service:
         fresh Cloud Run container; without these heartbeats the operator
         log shows a single "Loading native SAM 3 model" line and then
         silence until load completes, which is indistinguishable from a
-        stall. See docs/CONCURRENCY_AUDIT.md § R37.
+        stall.
         """
         stop = threading.Event()
         t0 = time.time()
@@ -1082,7 +1082,7 @@ class SAM3Service:
             # without touching disk. Writers all save via the same cache, so
             # cache is authoritative. Avoids needing session_io_lock here —
             # we can't hold session_io_lock across the SAM3 predictor calls
-            # below (lock hierarchy rule #1). See docs/CONCURRENCY_AUDIT.md § R20.
+            # below (lock hierarchy rule #1).
             all_prompts = load_all_prompts(session_dir, cache=get_session_cache())
             if not all_prompts:
                 return {"replayed": 0, "failed": 0, "skipped": 0}
@@ -1159,8 +1159,8 @@ class SAM3Service:
 
             self._active_object[session_id] = obj_id
 
-            # Replay this object's prompts via SessionCache (see R20 in
-            # docs/CONCURRENCY_AUDIT.md). Cache read matches the writer path
+            # Replay this object's prompts via SessionCache (R20). Cache
+            # read matches the writer path
             # and avoids a session_io_lock acquisition that would invert the
             # "no session_io_lock across SAM3 predictor calls" rule.
             all_prompts = load_all_prompts(session_dir, cache=get_session_cache())
@@ -1772,7 +1772,8 @@ class SAM3Service:
         by holding `session_io_lock(session_id)` across the whole block. Lock
         hierarchy: callers hold `_state_lock` and this method never
         takes SAM3 `_lock`, so acquiring `session_io_lock` here
-        respects the documented order (see docs/CONCURRENCY_AUDIT.md).
+        respects the documented order (see docs/TECHNICAL_REPORT.md §
+        Concurrency model).
         """
         import shutil
         session_dir = os.path.join(SESSIONS_DIR, session_id)

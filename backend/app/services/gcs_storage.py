@@ -20,7 +20,7 @@ _SESSIONS_CACHE_TTL = 30.0  # seconds
 # Single-flight gate for cache misses: when N concurrent callers see an
 # expired entry, only the first hits GCS; the rest wait on the per-bucket
 # lock and then read the populated cache. Lock hierarchy: leaf — never
-# held together with any other lock. See docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+# held together with any other lock. See docs/TECHNICAL_REPORT.md § Concurrency model.
 _sessions_cache_locks: dict[str, threading.Lock] = {}
 _sessions_cache_locks_guard = threading.Lock()
 

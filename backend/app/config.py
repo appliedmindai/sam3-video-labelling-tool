@@ -41,7 +41,7 @@ os.makedirs(EXPORTS_DIR, exist_ok=True)
 # `SAM3._state_lock` (via `finalize_close`), `SAM3._lock`,
 # `session_io_lock`, and `SessionCache._lock`, BEFORE
 # `GCSSyncManager._lock` (via `mark_dirty_safe` → `get_sync_manager` →
-# `mark_dirty`). See docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+# `mark_dirty`). See docs/TECHNICAL_REPORT.md § Concurrency model.
 _globals_lock = threading.Lock()
 _active_sync_manager = None
 _active_session_cache = None

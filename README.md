@@ -87,7 +87,7 @@ backend/
 frontend/            React 18 + TypeScript + Vite (shadcn/ui, Tailwind v4)
 deploy/              nginx.conf, entrypoint.sh (Docker)
 scripts/             Benchmark utilities, model cache helper
-docs/                Deploy guide, technical report, concurrency audit
+docs/                Deploy guide, technical report, streaming optimizations
 blog/                Engineering write-ups
 Dockerfile           HuggingFace backend image
 Dockerfile.native    Native SAM3 backend image (CUDA, production)

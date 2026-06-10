@@ -11,8 +11,6 @@
 #
 # Usage: scripts/check_entrypoint_workers.sh
 # Exit: 0 if ok, 1 otherwise.
-#
-# Ref: docs/CONCURRENCY_AUDIT.md § R38, GitHub issue #89.
 
 set -euo pipefail
 
@@ -28,7 +26,6 @@ if ! grep -qE '^\s*--workers\s+1\s*\\?\s*$' "$ENTRYPOINT"; then
   echo "check_entrypoint_workers: FAIL" >&2
   echo "  $ENTRYPOINT must contain a line '--workers 1'." >&2
   echo "  The service cannot safely run >1 gunicorn worker." >&2
-  echo "  See docs/CONCURRENCY_AUDIT.md § R38." >&2
   exit 1
 fi
 

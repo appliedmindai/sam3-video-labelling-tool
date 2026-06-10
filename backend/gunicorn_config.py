@@ -9,8 +9,6 @@ both workers race on the same sessions/ directory on disk.
 The hooks below fail-fast at container startup so that flipping
 `--workers N` in deploy/entrypoint.sh (or setting GUNICORN_CMD_ARGS /
 WEB_CONCURRENCY) produces a loud crash instead of silent corruption.
-
-Ref: docs/CONCURRENCY_AUDIT.md § R38, GitHub issue #89.
 """
 from __future__ import annotations
 
@@ -21,8 +19,7 @@ from typing import Any
 
 _SINGLE_WORKER_REASON = (
     "This service holds SAM3 GPU state, sync managers, and session caches "
-    "as in-process singletons. Running >1 worker silently diverges them. "
-    "See docs/CONCURRENCY_AUDIT.md § R38."
+    "as in-process singletons. Running >1 worker silently diverges them."
 )
 
 

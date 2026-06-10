@@ -85,7 +85,7 @@ class GCSSyncManager:
         # on the sync-manager path. No method on this class acquires any
         # other lock in the hierarchy. Upload I/O in `flush()` runs
         # OUTSIDE this lock by design. See
-        # docs/CONCURRENCY_AUDIT.md § Lock hierarchy.
+        # docs/TECHNICAL_REPORT.md § Concurrency model.
         self._lock = threading.Lock()
         self._dirty: set[str] = set()
         self._deferred: set[str] = set()
