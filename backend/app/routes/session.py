@@ -281,7 +281,7 @@ def resume_session(session_id):
         with open(meta_path) as f:
             meta = json.load(f)
         video_name = meta.get("original_name", video_name)
-    elif SEGMENT_MODE == "cloud" and hasattr(g, "bucket") and g.bucket:
+    elif SEGMENT_MODE == "cloud" and g.bucket:
         # Session only exists in GCS — read meta.json directly so the
         # loading screen shows the filename instead of the session UUID.
         try:
@@ -293,14 +293,15 @@ def resume_session(session_id):
                 video_name = meta.get("original_name", video_name)
         except Exception:
             pass  # fallback to UUID — DownloadSessionStep will resolve it later
-    elif not os.path.isdir(session_dir):
+    else:
+        # Standalone mode with no local meta.json: nothing to resume from.
         return jsonify({"error": "Session not found"}), 404
 
     # Build pipeline
     from app.services.pipeline import InitSessionStep, DownloadSessionStep
 
     steps = []
-    bucket = g.bucket if SEGMENT_MODE == "cloud" and hasattr(g, "bucket") else None
+    bucket = g.bucket if SEGMENT_MODE == "cloud" else None
     if bucket:
         steps.append(DownloadSessionStep(session_id, bucket))
     steps.append(InitSessionStep(session_id))

@@ -83,7 +83,7 @@ def import_session_route():
 
         # Cloud mode: upload imported session files to GCS so the session
         # survives container restarts and appears in the session list.
-        if SEGMENT_MODE == "cloud" and hasattr(g, "bucket") and g.bucket and not result.get("duplicate"):
+        if SEGMENT_MODE == "cloud" and g.bucket and not result.get("duplicate"):
             from app.services import gcs_storage
             session_id = result["session_id"]
             session_dir = os.path.join(SESSIONS_DIR, session_id)

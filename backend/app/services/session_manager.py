@@ -10,9 +10,9 @@ DEFAULT_STATE = {"classes": [], "objects": [], "version": 0}
 def save_state(session_dir: str, state: dict, cache=None) -> None:
     """Persist state.json, bumping the monotonic `version` counter.
 
-    `version` is the lost-update guard for PUT /api/session/state/<sid>
-   . Every write increments it by one. Readers echo the value
-    back; writers must match it or get 409.
+    `version` is the lost-update guard for PUT /api/session/state/<sid>.
+    Every write increments it by one. Readers echo the value back;
+    writers must match it or get 409.
     """
     state = {**state, "version": int(state.get("version", 0)) + 1}
     if cache is not None:

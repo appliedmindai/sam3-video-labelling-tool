@@ -170,7 +170,13 @@ def upload_directory(bucket_name: str, session_id: str, local_dir: str,
 
 def download_session(bucket_name: str, session_id: str, local_dir: str,
                      on_progress=None) -> None:
-    """Download a session from GCS to a local directory."""
+    """Download a session from GCS to a local directory.
+
+    Each file is downloaded to a tmp path and published via os.rename so a
+    concurrent reader (e.g. GET /frame from a second tab mid-resume) never
+    observes a half-written file. The tmp naming matches
+    sweep_orphan_tmp_files so crashed downloads are cleaned at startup."""
+    import uuid
     client = _get_client()
     bucket = client.bucket(bucket_name)
 
@@ -184,7 +190,16 @@ def download_session(bucket_name: str, session_id: str, local_dir: str,
         rel_path = blob.name[len(prefix):]
         local_path = os.path.join(local_dir, rel_path)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        blob.download_to_filename(local_path)
+        tmp_path = f"{local_path}.tmp.{os.getpid()}.{uuid.uuid4().hex}"
+        try:
+            blob.download_to_filename(tmp_path)
+            os.rename(tmp_path, local_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+            raise
         if on_progress:
             on_progress(i + 1, total)
 

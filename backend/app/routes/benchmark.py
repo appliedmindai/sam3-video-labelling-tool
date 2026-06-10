@@ -49,6 +49,7 @@ Response:
 import logging
 import os
 import resource
+import sys
 import time
 
 import torch
@@ -81,7 +82,9 @@ def health():
 
 
 def _mem_snapshot(label=""):
-    rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
+    # ru_maxrss is kilobytes on Linux, bytes on macOS
+    _rss_divisor = 1024 if sys.platform.startswith("linux") else 1024 * 1024
+    rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _rss_divisor
     gpu_mb = None
     try:
         if torch.cuda.is_available():

@@ -48,10 +48,9 @@ class CloudRunFormatter(logging.Formatter):
 
         # Inject request context from Flask's g object
         if has_request_context():
-            for key in ("user_id", "org_id", "session_id"):
-                val = getattr(g, key, None)
-                if val is not None:
-                    entry[key] = val
+            val = getattr(g, "session_id", None)
+            if val is not None:
+                entry["session_id"] = val
 
         # Include exception info if present
         if record.exc_info and record.exc_info[1] is not None:

@@ -42,7 +42,7 @@ def upload_video():
 
     # Duplicate check
     duplicate = False
-    if SEGMENT_MODE == "cloud" and hasattr(g, "bucket") and g.bucket:
+    if SEGMENT_MODE == "cloud" and g.bucket:
         from app.services.gcs_storage import find_session_by_md5_gcs
         existing = find_session_by_md5_gcs(g.bucket, md5)
     else:
