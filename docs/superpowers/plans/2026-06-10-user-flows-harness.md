@@ -33,6 +33,11 @@ Tier-1 total: 14 entries.
 
 ### Task 1: USER-FLOWS.md skeleton — usage loop, invariants, fixture contract, maintenance rules
 
+> **COMPLETED** (commits dc20610 + d69b314). The step text below is the original
+> draft; the committed USER-FLOWS.md supersedes it where they differ (quality-review
+> amendments: literal [DISK] path, falsifiable N4/N8, iou.py, clearing procedure in N3,
+> thresholds in N9). Do NOT re-execute this task from this text.
+
 **Files:**
 - Create: `USER-FLOWS.md` (repo root)
 
@@ -73,7 +78,7 @@ The loop, after any behavioral change:
    - `[BROWSER]` — Claude drives a real browser against `http://localhost:5173`
      using the fixture's canonical click coordinates
    - `[HUMAN]` — only a person can judge (mask visual quality, drag feel)
-4. Check every **Must NOT** invariant listed for those flows.
+4. Check each flow's **Must NOT** lines, including every global invariant they reference.
 5. Report per flow: PASS / FAIL (with evidence) / NOT RUN (with reason).
    Hand the user the remaining `[HUMAN]` checklist.
 
@@ -122,7 +127,7 @@ tests/fixtures/harness/
 - `golden_session.zip` doubles as the import-flow test asset (UF-8.2).
 ```
 
-- [ ] **Step 5: Write "Maintenance rules" section** — the four rules from the spec verbatim (PR updates flow entry in same commit; bug → Must NOT invariant; IDs stable/deprecate-never-delete; impact map row per new code area). Add rule 5: "New flows get the next unused number in their range; new ranges append."
+- [ ] **Step 5: Write "Maintenance rules" section** — the four rules from the spec verbatim (PR updates flow entry in same commit; bug → Must NOT line; IDs stable/deprecate-never-delete; impact map row per new code area). Add rule 5: "New flows get the next unused number in their range; new ranges append."
 
 - [ ] **Step 6: Leave `## Tier 1 flows`, `## Tier 2 flows`, `## Impact map`, `## Deploy smoke set` as headers with a one-line `<!-- populated in Tasks 2–6 -->` comment** (removed by Task 6).
 

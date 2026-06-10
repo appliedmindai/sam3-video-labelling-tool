@@ -47,7 +47,7 @@ mark those steps NOT RUN locally and use the Deploy smoke set after deploys.
 | UF-9.x | Settings |
 | UF-10.x | Canvas interactions |
 | UF-11.x | Caching |
-| UF-12 | Recovery |
+| UF-12 | Recovery (single entry, no sub-numbering) |
 
 Flow IDs are stable and never renumbered (see Maintenance rules).
 
