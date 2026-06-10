@@ -32,6 +32,8 @@ React 18 + TS + Vite  ──/api──▶  Flask (gunicorn, 1 worker × 4 thread
 - **"Active object" model.** SAM3's inference state only ever contains the object(s) the user is currently working with. Switching objects resets the predictor state and replays that object's prompts from disk. This came out of a hard-won lesson: video predictors in the SAM family propagate *every* object registered in their inference state, not just the one you asked about — letting stale objects accumulate silently corrupts masks you already approved. UI state and backend state must be the same thing.
 - **Propagation streams over SSE.** A propagation run holds the GPU lock and streams per-frame results; the frontend renders masks as they arrive and shows per-frame confidence so you can spot drift and drop a correction keyframe.
 
+The client-side data path — IndexedDB frame/mask caches, per-frame version counters for delta sync, and the SSE streaming protocol — is documented in [MASK_FRAME_STREAMING.md](MASK_FRAME_STREAMING.md).
+
 ## Dual SAM3 backend
 
 The tool ships two interchangeable SAM 3.1 integration paths, selected automatically (`SAM3_BACKEND=auto`):
@@ -125,6 +127,7 @@ Local development on a Mac runs the HF backend on MPS, with three non-obvious co
 
 ## Further reading
 
+- [MASK_FRAME_STREAMING.md](MASK_FRAME_STREAMING.md) — how the frontend and backend minimize bandwidth while editing: RLE-everywhere masks, version-vector delta sync, IndexedDB caches, and server-push propagation streaming.
 - [blog/sam3-native-cuda-the-dtype-maze.md](../blog/sam3-native-cuda-the-dtype-maze.md) — the full T4 → L4 story: every dtype failure mode, every patch, and the benchmark data behind the GPU selection rule.
 - [CONCURRENCY_AUDIT.md](CONCURRENCY_AUDIT.md) — the backend's full concurrency model: lock hierarchy, sync-manager lifecycle, and the findings (open and fixed) from hardening it.
 

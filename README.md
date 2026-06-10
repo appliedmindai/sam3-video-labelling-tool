@@ -74,7 +74,7 @@ Key constraints: `max-instances=1` (stateful — SAM3 inference state lives in m
 
 ## Technical Report
 
-[docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md) explains the engineering decisions: the dual SAM3 backend, GPU selection (why L4 and not T4), Cloud Run statefulness, the Docker layer-caching strategy that cuts rebuilds from ~20 min to ~3 min, and the MPS-specific constraints for Apple Silicon. The `blog/` directory has longer-form write-ups.
+[docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md) explains the engineering decisions: the dual SAM3 backend, GPU selection (why L4 and not T4), Cloud Run statefulness, the Docker layer-caching strategy that cuts rebuilds from ~20 min to ~3 min, and the MPS-specific constraints for Apple Silicon. [docs/MASK_FRAME_STREAMING.md](docs/MASK_FRAME_STREAMING.md) covers the bandwidth optimizations — RLE masks, version-vector delta sync, IndexedDB frame/mask caches, and SSE propagation streaming. The `blog/` directory has longer-form write-ups.
 
 ## Project Structure
 
