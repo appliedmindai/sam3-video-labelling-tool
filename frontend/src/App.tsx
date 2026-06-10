@@ -87,8 +87,6 @@ function App() {
   const lastActivityRef = useRef(Date.now());
 
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   const [frameCount, setFrameCount] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
 
@@ -1307,7 +1305,10 @@ function App() {
           : (result.source_keyframe !== undefined ? result.source_keyframe : null);
         frameMasksForCache[Number(objIdStr)] = { ...maskData, source_keyframe: sourceKf };
       }
-      if (propagating) {
+      // Read via ref: this function is captured by handlePropagate's memoized
+      // onFrame closure, where the `propagating` state is stale-false for the
+      // entire run.
+      if (propagatingRef.current) {
         putMasksMemoryOnly(sessionId, result.frame_idx, frameMasksForCache);
       } else {
         putMasks(sessionId, result.frame_idx, frameMasksForCache).catch(() => {});

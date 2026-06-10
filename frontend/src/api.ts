@@ -198,27 +198,15 @@ export async function boxSegment(
   return res.json();
 }
 
-export async function propagate(
-  sessionId: string,
-  startFrame?: number,
-  reverse?: boolean,
+/**
+ * Consume an SSE response of FrameResult events: parse `data:` lines,
+ * surface in-band errors, stop on the `{"done": true}` sentinel, and
+ * invoke `onFrame` for each result.
+ */
+async function consumeSseFrames(
+  res: Response,
   onFrame?: (result: FrameResult) => void,
-  signal?: AbortSignal,
-  objectIds?: number[],
 ): Promise<void> {
-  const body: Record<string, unknown> = { session_id: sessionId };
-  if (startFrame !== undefined) body.start_frame_idx = startFrame;
-  if (reverse !== undefined) body.reverse = reverse;
-  if (objectIds !== undefined) body.object_ids = objectIds;
-
-  const res = await fetch(`${BASE}/segment/propagate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok) throw new Error(await res.text());
-
   const reader = res.body?.getReader();
   if (!reader) return;
 
@@ -258,6 +246,29 @@ export async function propagate(
   }
 }
 
+export async function propagate(
+  sessionId: string,
+  startFrame?: number,
+  reverse?: boolean,
+  onFrame?: (result: FrameResult) => void,
+  signal?: AbortSignal,
+  objectIds?: number[],
+): Promise<void> {
+  const body: Record<string, unknown> = { session_id: sessionId };
+  if (startFrame !== undefined) body.start_frame_idx = startFrame;
+  if (reverse !== undefined) body.reverse = reverse;
+  if (objectIds !== undefined) body.object_ids = objectIds;
+
+  const res = await fetch(`${BASE}/segment/propagate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return consumeSseFrames(res, onFrame);
+}
+
 export async function subscribePropagation(
   sessionId: string,
   onFrame?: (result: FrameResult) => void,
@@ -267,44 +278,7 @@ export async function subscribePropagation(
     signal,
   });
   if (!res.ok) throw new Error(await res.text());
-
-  const reader = res.body?.getReader();
-  if (!reader) return;
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() ?? "";
-
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith("data: ")) continue;
-        const json = line.slice(6);
-        try {
-          const parsed = JSON.parse(json) as FrameResult & { done?: boolean; error?: string; traceback?: string };
-          if (parsed.error) {
-            const err = new Error(parsed.error) as Error & { traceback?: string };
-            err.traceback = parsed.traceback;
-            throw err;
-          }
-          if (parsed.done) return;
-          if (onFrame) onFrame(parsed);
-        } catch (e) {
-          if (e instanceof Error && (e as Error & { traceback?: string }).traceback) throw e;
-          // skip malformed events
-        }
-      }
-    }
-  } finally {
-    reader.cancel().catch(() => {});
-  }
+  return consumeSseFrames(res, onFrame);
 }
 
 export async function getPropagationStatus(
@@ -436,10 +410,7 @@ export async function loadSessionMasks(
   const res = await fetch(`${BASE}/session/masks/${sessionId}`);
   if (!res.ok) throw new Error(await res.text());
   const raw = await res.json();
-
-  // Handle both old format (flat mask dict) and new format ({masks, versions})
-  const rawMasks: Record<string, Record<string, MaskResult>> =
-    raw.masks !== undefined ? raw.masks : raw;
+  const rawMasks: Record<string, Record<string, MaskResult>> = raw.masks ?? {};
   const versions: Record<string, number> = raw.versions ?? {};
 
   const masks: Record<number, Record<number, MaskResult>> = {};
