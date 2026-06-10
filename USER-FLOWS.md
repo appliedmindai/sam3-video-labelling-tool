@@ -114,7 +114,59 @@ Assets are committed in a follow-up commit; until then, fixture-dependent steps 
 
 ## Tier 1 flows
 
-<!-- populated in Tasks 2–6 of docs/superpowers/plans/2026-06-10-user-flows-harness.md -->
+### UF-1.1 Upload Video
+
+**Contract:** Selecting a video, optional FPS (default 5), and optional max resolution (default 2048), then clicking Upload, starts a background pipeline that extracts frames and initializes SAM3, landing the user in the annotation UI without further interaction. If the tab is closed during extraction or initialization and reopened, the frontend re-attaches to the in-progress pipeline by polling `GET /api/status` and resumes showing the progress view at the correct phase.
+
+**Must NOT:**
+- Leave `GET /api/status` returning `phase: "extracting"` or `phase: "initializing"` after a pipeline failure — the phase must transition to `"error"` (N8).
+- Create a session directory without writing `meta.json` before the pipeline starts — `meta.json` is written synchronously in the upload handler before `start_pipeline` is called (upload handler lines 64–76 of `routes/video.py`).
+- Accept a second concurrent upload while a pipeline is running — `start_pipeline` returns `(False, reason)` and the route responds 409; document this: the backend returns `{"error": reason}` with HTTP 409.
+- Use a form field name other than `video` for the file and `fps` / `max_resolution` for the parameters (exact field names from `routes/video.py` line 28, 40, 41 and `api.ts` `uploadVideo`).
+
+**Verify:**
+1. `[API]` `curl -s -X POST http://localhost:5555/api/video/upload -F "video=@tests/fixtures/harness/sample.mp4" -F "fps=5" -F "max_resolution=2048"` → Expect: HTTP 200, JSON body contains `session_id` (UUID string) and `duplicate: false`.
+2. `[API]` Poll `GET http://localhost:5555/api/status` every 500 ms → Expect: `phase` walks `"extracting"` → `"initializing"` → `"ready"` in order; `progress` is non-decreasing within each phase; `session_id` matches the value from step 1.
+3. `[DISK]` Inspect `backend/sessions/<session_id>/` → Expect: `meta.json` exists with `fps: 5`; `frames/` directory exists; `frames/*.jpg` count ≈ video duration (seconds) × 5 (±1 frame).
+4. `[BROWSER]` Upload `tests/fixtures/harness/sample.mp4` via the UI file picker with default settings → Expect: progress bar advances through extraction and initialization steps; annotation UI (canvas + class panel) renders without a page reload.
+5. `[HUMAN]` The first frame renders correctly on the canvas at full width with no distortion or blank area.
+
+---
+
+### UF-1.2 Resume Session
+
+**Contract:** Clicking Resume on a session card calls `POST /api/session/resume/<session_id>`, which starts a background pipeline (local: `InitSessionStep` only; cloud: `DownloadSessionStep` then `InitSessionStep`), returns 202 immediately, and lands the user in the annotation UI with all prior classes, objects, masks, and prompts intact once the pipeline reaches `"ready"`.
+
+**Must NOT:**
+- Lose or mutate any persisted mask, prompt, or class data during resume — `masks.json`, `prompts.json`, and `state.json` must be byte-identical to their pre-close snapshots (N5 applies: state.json must never contain the wipe fingerprint post-resume).
+- Permit auto-save to fire before both state and mask loads have succeeded — `App.tsx`'s `sessionLoadedRef` guard gates all auto-saves; a resume that returns `"ready"` before the frontend has fetched state/masks must not trigger a save.
+- Silently drop orphaned masks — objects whose class was deleted surface as `class_id: -1` synthetics in `App.tsx loadSession`; they must appear in the object list, not be silently omitted.
+- Accept a second concurrent resume while a pipeline is already running — `start_pipeline` returns 409 with `{"error": reason}`.
+
+**Verify:**
+1. `[API]` Snapshot `masks.json` content for the golden session. Then `curl -s -X POST http://localhost:5555/api/session/resume/<golden_session_id>` → Expect: HTTP 202, JSON body contains `session_id` and `video_name`.
+2. `[API]` Poll `GET http://localhost:5555/api/status` → Expect: `phase` walks `"initializing"` → `"ready"`; `session_id` matches. Then `GET http://localhost:5555/api/session/state/<session_id>`, `GET http://localhost:5555/api/session/masks/<session_id>`, `GET http://localhost:5555/api/session/prompts/<session_id>` → Expect: values match the pre-resume snapshot.
+3. `[BROWSER]` Click Resume on the golden session card → Expect: initialization progress view appears, then annotation UI renders; object list shows the fixture's expected object count; masks render as colored overlays on the keyframe.
+4. `[DISK]` After resume completes, `diff` `masks.json` against the pre-resume snapshot → Expect: byte-identical.
+
+---
+
+### UF-1.5 Close Session (incl. GCS retry path)
+
+**Contract:** Closing a session flushes any pending debounced saves (including bboxPadding edits), cancels any in-flight propagation, releases SAM3 inference state, and returns the user to the session list. In cloud mode, if GCS upload fails after 3 retries, the backend returns HTTP 503 with `{"error": ..., "unsynced_files": [...], "retry_possible": true/false}` and the frontend surfaces a retry dialog listing the unsynced files; "Retry upload" re-attempts the close; "Close anyway" (when `retry_possible: false`) closes without re-upload. Dismissing the dialog keeps the session open.
+
+**Must NOT:**
+- Lose a bboxPadding edit made less than 500 ms before close — `handleCloseSession` explicitly flushes state before clearing `sessionId`, bypassing the debounce timer (N6).
+- Exit silently on GCS upload failure in cloud mode — must return HTTP 503 with `unsynced_files` array and surface the retry dialog (N6; cloud mode only — NOT RUN locally).
+- Leave `GET /api/status` returning a phase other than `"idle"` after a successful close (N8).
+- Leave a propagation thread holding `SAM3Service._lock` after close — `close_session` cancels propagation before acquiring the lock; after close, `GET /api/segment/propagation-status/<session_id>` must report `{"status": "idle"}` (N9).
+- Return a 2xx response if SAM3 state was never initialized for the session — `close_session` handles the case gracefully (session absent from `_sessions` is a no-op in `close_session`).
+
+**Verify:**
+1. `[BROWSER]` Annotate a bbox on the keyframe, adjust the padding slider, then immediately click Close (within 500 ms of the padding change) → Resume the session → Expect: the padding value from before close is present and matches what was set.
+2. `[API]` `curl -s -X POST http://localhost:5555/api/segment/close/<session_id>` → Expect: HTTP 200, `{"ok": true}`. Then `curl -s http://localhost:5555/api/status` → Expect: `{"phase": "idle", "session_id": null, ...}`.
+3. `[API]` After close, `curl -s -X POST http://localhost:5555/api/segment/click -H "Content-Type: application/json" -d '{"session_id":"<session_id>","frame_idx":0,"obj_id":1,"points":[[100,100]],"labels":[1]}'` → Expect: HTTP 500 (Flask unhandled `KeyError` from `self._sessions[session_id]` in `add_click`) — not a hang. Note: this is the current behavior; a future hardening task should return 404 instead.
+4. `[HUMAN]` (cloud mode only) Close the session during a simulated or forced GCS outage → Expect: retry dialog appears listing the unsynced file names; "Retry upload" re-attempts and succeeds when GCS is restored; "Close anyway" closes and returns to the session list.
 
 ---
 
