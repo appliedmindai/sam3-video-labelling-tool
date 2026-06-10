@@ -82,30 +82,35 @@ def text_segment():
         import traceback
         logger.error("text_segment failed: %s\n%s", e, traceback.format_exc())
         return jsonify({"error": f"Text detection failed: {str(e)}"}), 500
-    # Remap internal model obj_ids to frontend-assigned sequential IDs
-    if obj_id_start is not None and result["instances"]:
-        for i, inst in enumerate(result["instances"]):
-            inst["obj_id"] = obj_id_start + i
-    # Persist remapped masks to disk and register in tracker for propagation
-    session_dir = os.path.join(SESSIONS_DIR, session_id)
-    if result["instances"]:
-        obj_masks = {}
-        # Phase 1: SAM3 calls (must NOT be inside session_io_lock to avoid
-        # deadlock with propagation's persist_fn which holds SAM3._lock).
-        for inst in result["instances"]:
-            decoded = pmask_utils.decode(inst["rle"])
-            obj_masks[inst["obj_id"]] = decoded
-            sam.add_mask(session_id, frame_idx, inst["obj_id"], decoded)
-        # Phase 2: file writes (protected by session_io_lock).
-        if obj_masks:
-            cache = get_session_cache()
-            with session_io_lock(session_id):
-                for inst in result["instances"]:
-                    save_prompt(session_dir, frame_idx, inst["obj_id"], {
-                        "type": "mask",
-                        "rle": inst["rle"],
-                    }, cache=cache)
-                update_frame_masks(session_dir, frame_idx, obj_masks, source_keyframe=None, cache=cache)
+    try:
+        # Remap internal model obj_ids to frontend-assigned sequential IDs
+        if obj_id_start is not None and result["instances"]:
+            for i, inst in enumerate(result["instances"]):
+                inst["obj_id"] = obj_id_start + i
+        # Persist remapped masks to disk and register in tracker for propagation
+        session_dir = os.path.join(SESSIONS_DIR, session_id)
+        if result["instances"]:
+            obj_masks = {}
+            # Phase 1: SAM3 calls (must NOT be inside session_io_lock to avoid
+            # deadlock with propagation's persist_fn which holds SAM3._lock).
+            for inst in result["instances"]:
+                decoded = pmask_utils.decode(inst["rle"])
+                obj_masks[inst["obj_id"]] = decoded
+                sam.add_mask(session_id, frame_idx, inst["obj_id"], decoded)
+            # Phase 2: file writes (protected by session_io_lock).
+            if obj_masks:
+                cache = get_session_cache()
+                with session_io_lock(session_id):
+                    for inst in result["instances"]:
+                        save_prompt(session_dir, frame_idx, inst["obj_id"], {
+                            "type": "mask",
+                            "rle": inst["rle"],
+                        }, cache=cache)
+                    update_frame_masks(session_dir, frame_idx, obj_masks, source_keyframe=None, cache=cache)
+    except Exception as e:
+        import traceback
+        logger.error("text_segment persist failed: %s\n%s", e, traceback.format_exc())
+        return jsonify({"error": f"Text detection succeeded but saving masks failed: {str(e)}"}), 500
     return jsonify(result)
 
 @segment_bp.route("/propagate", methods=["POST"])
