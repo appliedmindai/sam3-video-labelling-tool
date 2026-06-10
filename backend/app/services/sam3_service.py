@@ -444,10 +444,16 @@ class SAM3Service:
             logger.info("Disabled autocast for HF backend on %s", self._device)
 
         t0 = time.time()
-        self._model = Sam3TrackerVideoModel.from_pretrained(SAM3_MODEL_ID)
-        self._model = self._model.to(self._device)
-        self._model.eval()
-        self._processor = Sam3TrackerVideoProcessor.from_pretrained(SAM3_MODEL_ID)
+        # Commit to self only after both loads succeed — a processor-load
+        # failure (e.g. HF Hub 401 on the gated repo) must not leave
+        # `_model` set, or `_ensure_model` short-circuits forever.
+        # Same pattern as `_ensure_text_model`.
+        model = Sam3TrackerVideoModel.from_pretrained(SAM3_MODEL_ID)
+        model = model.to(self._device)
+        model.eval()
+        processor = Sam3TrackerVideoProcessor.from_pretrained(SAM3_MODEL_ID)
+        self._model = model
+        self._processor = processor
         load_ms = int((time.time() - t0) * 1000)
         logger.info("HF SAM 3.1 model loaded in %dms | device=%s | params=%s",
                      load_ms, self._device,

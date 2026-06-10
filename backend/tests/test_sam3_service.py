@@ -946,3 +946,62 @@ def test_cleanup_partial_preserves_session_with_frames(tmp_path, monkeypatch):
     sam._cleanup_partial(sid)
     assert session_dir.exists()
     assert (frames_dir / "00001.jpg").exists()
+
+
+# --- HF backend partial-load failure must not leave half-initialized state ---
+
+def test_init_hf_backend_processor_failure_leaves_no_half_state(monkeypatch):
+    """A processor-load failure (e.g. HF Hub 401 on the gated repo while
+    probing chat_template.json) must not leave `_model` set with
+    `_processor=None`. Otherwise `_ensure_model` short-circuits on the
+    existence guard forever and text-prompt mask bridging crashes with
+    'NoneType' object has no attribute 'add_inputs_to_inference_session'.
+    """
+    import torch
+    import transformers
+    from app.services import sam3_service
+    from app.services.sam3_service import SAM3Service
+
+    service = SAM3Service()
+    monkeypatch.setattr(service, "_model", None)
+    monkeypatch.setattr(service, "_processor", None)
+    monkeypatch.setattr(service, "_device", torch.device("cpu"))
+    # Avoid mutating global torch autocast state in the test process
+    monkeypatch.setattr(sam3_service, "_disable_autocast", lambda: None)
+
+    class DummyModel:
+        def to(self, device):
+            return self
+
+        def eval(self):
+            return self
+
+        def parameters(self):
+            return iter([torch.zeros(1)])
+
+    def fail_processor(*args, **kwargs):
+        raise RuntimeError("401 Client Error: gated repo")
+
+    monkeypatch.setattr(
+        transformers.Sam3TrackerVideoModel, "from_pretrained",
+        staticmethod(lambda *a, **k: DummyModel()),
+    )
+    monkeypatch.setattr(
+        transformers.Sam3TrackerVideoProcessor, "from_pretrained",
+        staticmethod(fail_processor),
+    )
+
+    with pytest.raises(RuntimeError):
+        service._init_hf_backend()
+
+    assert service._model is None
+    assert service._processor is None
+
+    # After the failure is resolved (e.g. user logs in), a retry must load both.
+    monkeypatch.setattr(
+        transformers.Sam3TrackerVideoProcessor, "from_pretrained",
+        staticmethod(lambda *a, **k: object()),
+    )
+    service._init_hf_backend()
+    assert service._model is not None
+    assert service._processor is not None
