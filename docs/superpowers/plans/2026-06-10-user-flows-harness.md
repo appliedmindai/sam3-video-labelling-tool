@@ -65,7 +65,7 @@ Content (verbatim intent, wording may be polished):
 The loop, after any behavioral change:
 
 1. List the files you touched.
-2. Look each up in the **Impact map** → collect the flow IDs and N-invariants.
+2. Look each up in the **Impact map** → collect the flow IDs and global invariants.
 3. Execute each flow's **Verify** steps in order. Tags say who runs them:
    - `[API]` — Claude: curl against Flask (`http://localhost:5555`)
    - `[DISK]` — Claude: inspect session files under the backend sessions dir
@@ -122,7 +122,7 @@ tests/fixtures/harness/
 - `golden_session.zip` doubles as the import-flow test asset (UF-8.2).
 ```
 
-- [ ] **Step 5: Write "Maintenance rules" section** — the four rules from the spec verbatim (PR updates flow entry in same commit; bug → Must-NOT invariant; IDs stable/deprecate-never-delete; impact map row per new code area). Add rule 5: "New flows get the next unused number in their range; new ranges append."
+- [ ] **Step 5: Write "Maintenance rules" section** — the four rules from the spec verbatim (PR updates flow entry in same commit; bug → Must NOT invariant; IDs stable/deprecate-never-delete; impact map row per new code area). Add rule 5: "New flows get the next unused number in their range; new ranges append."
 
 - [ ] **Step 6: Leave `## Tier 1 flows`, `## Tier 2 flows`, `## Impact map`, `## Deploy smoke set` as headers with a one-line `<!-- populated in Tasks 2–6 -->` comment** (removed by Task 6).
 
@@ -140,7 +140,7 @@ git commit -m "docs: USER-FLOWS.md skeleton — usage loop, invariants N1-N10, f
 **Files:**
 - Modify: `USER-FLOWS.md` (under `## Tier 1 flows`)
 
-Every entry uses the anatomy: `### UF-x.y Name` → **Contract** (2–3 sentences) → **Must NOT** (bullets, referencing N-rules) → **Verify** (numbered, tagged, each with `→ Expect:`).
+Every entry uses the anatomy: `### UF-x.y Name` → **Contract** (2–3 sentences) → **Must NOT** (bullets, referencing global invariants by ID) → **Verify** (numbered, tagged, each with `→ Expect:`).
 
 - [ ] **Step 1: Write UF-1.1 Upload Video**
 
@@ -403,6 +403,7 @@ git commit -m "docs: point CLAUDE.md at USER-FLOWS.md harness; move smoke tests"
 - Create: `tests/fixtures/harness/sample.mp4` (user-provided, re-encoded if > 640 px or > 10 s: `ffmpeg -i in.mp4 -vf scale=640:-2 -t 10 -an sample.mp4`)
 - Create: `tests/fixtures/harness/golden_session.zip`
 - Create: `tests/fixtures/harness/fixture.json`
+- Create: `tests/fixtures/harness/iou.py`
 - Create: `tests/fixtures/harness/README.md`
 
 - [ ] **Step 1: Start the app** — `make dev` (conda env `sam3-annotator`); wait for `GET http://localhost:5555/api/status` → `{"phase":"idle"}`.
@@ -435,6 +436,8 @@ git commit -m "docs: point CLAUDE.md at USER-FLOWS.md harness; move smoke tests"
 
 (`expected_text_detections` and `propagation_sample_frames` filled with measured values.)
 
+- [ ] **Step 6b: Write `iou.py`** — decodes two RLE mask strings using the backend's RLE decoder (see `backend/app/services/mask_storage.py` or equivalent — verify the actual module) and prints IoU; used by all IoU checks in USER-FLOWS.md.
+
 - [ ] **Step 7: Write `README.md`** — what the video shows, how each golden was produced (exact API calls), the regeneration procedure ("delete goldens, re-run Task 8 steps 1–6"), and the note that goldens were generated on MPS so CUDA comparisons rely on the IoU ≥ 0.80 tolerance.
 
 - [ ] **Step 8: Update USER-FLOWS.md fixture section** if any measured value differs from the documented contract (e.g., object count).
@@ -457,7 +460,7 @@ git commit -m "test: add harness fixture — sample video, golden session, canon
 
 - [ ] **Step 2: Execute every Tier-1 flow's `[API]` and `[DISK]` steps in ID order** against the fixture, recording PASS/FAIL/NOT RUN per step. `[BROWSER]` steps: run if a browser tool is available this session, else mark NOT RUN per the degradation rule.
 
-- [ ] **Step 3: Fix the document, not just note failures** — every step that is wrong-as-written (bad endpoint, wrong expected value, impossible ordering) gets corrected in USER-FLOWS.md. If a step reveals an actual app bug, do NOT fix the app in this task — file it and add the corresponding Must-NOT invariant per maintenance rule 2.
+- [ ] **Step 3: Fix the document, not just note failures** — every step that is wrong-as-written (bad endpoint, wrong expected value, impossible ordering) gets corrected in USER-FLOWS.md. If a step reveals an actual app bug, do NOT fix the app in this task — file it and add the corresponding Must NOT line per maintenance rule 2.
 
 - [ ] **Step 4: Report** — produce the per-flow PASS/FAIL table + the `[HUMAN]` checklist for Danilo (this is the harness's standard output format; its first real production).
 
