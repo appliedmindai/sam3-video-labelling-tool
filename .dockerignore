@@ -1,0 +1,10 @@
+.git
+.worktrees
+.claude
+node_modules
+__pycache__
+*.pyc
+backend/sessions
+backend/exports
+backend/checkpoints
+docs/

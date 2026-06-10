@@ -1,0 +1,83 @@
+# Dockerfile.native — CUDA deployment with native facebookresearch/sam3
+#
+# Uses the native sam3 repo with Triton-optimized GPU kernels instead of
+# HuggingFace Transformers. Expected speedup: ~7x for multi-object tracking.
+#
+# Build:
+#   docker build -f Dockerfile.native \
+#     --build-arg HF_TOKEN=hf_xxx \
+#     -t sam3-annotator-native .
+
+# --- Stage 1: Build frontend ---
+FROM node:22-slim AS frontend-build
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2: Runtime ---
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg nginx git libgl1-mesa-glx libglib2.0-0 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Pre-install deps that sam3's setup.py may miss
+RUN pip install einops iopath
+
+# Install native SAM 3 with CUDA kernels (Triton, Flash Attention support)
+RUN git clone --depth 1 https://github.com/facebookresearch/sam3.git /app/sam3-repo \
+    && cd /app/sam3-repo && pip install -e . && cd /app
+
+# Optional: Flash Attention for extra speed on Ampere+ GPUs
+RUN pip install flash-attn --no-build-isolation 2>/dev/null || true
+
+# Install HuggingFace Transformers (still needed for text-prompted segmentation)
+# and other backend dependencies
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+
+# Pre-cache model weights from GCS (downloaded by Cloud Build before docker build).
+# This eliminates the HuggingFace token dependency at build/run time — weights
+# live in your own GCS bucket (see _MODELS_BUCKET in cloudbuild-native.yaml)
+# and are copied into the build context before this Dockerfile runs. To update
+# weights after a new SAM release: download from HF Hub and re-upload there.
+COPY models/sam3/ /app/models/sam3/
+
+# Populate the HuggingFace Hub cache so from_pretrained('facebook/sam3') and
+# build_sam3_video_model() find the weights locally without network access.
+COPY scripts/populate_hf_cache.py /tmp/populate_hf_cache.py
+RUN python3 /tmp/populate_hf_cache.py && rm /tmp/populate_hf_cache.py
+
+# Copy backend code
+COPY backend/ /app/backend/
+
+# Copy frontend build
+COPY --from=frontend-build /build/dist /usr/share/nginx/html
+
+# Copy deploy configs
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Remove default nginx config that conflicts
+RUN rm -f /etc/nginx/sites-enabled/default
+
+# Native backend is auto-selected when CUDA is available.
+# Force it explicitly for clarity in production.
+ENV SAM3_BACKEND=native
+ENV SEGMENT_MODE=cloud
+
+# All model weights are baked into the image via populate_hf_cache.py above.
+# Force transformers/huggingface_hub fully offline so from_pretrained cannot
+# probe HF at runtime. Without this, Sam3VideoProcessor.from_pretrained tries
+# to resolve optional files (e.g. chat_template.json) and hits 401 on the
+# gated facebook/sam3 repo since Cloud Run has no HF token.
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
+
+EXPOSE 8080
+CMD ["/app/entrypoint.sh"]

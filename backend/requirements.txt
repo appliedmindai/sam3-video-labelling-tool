@@ -1,0 +1,12 @@
+flask>=3.0
+flask-cors>=4.0
+torch>=2.1
+torchvision>=0.16
+opencv-python>=4.8
+numpy>=1.24
+Pillow>=10.0
+pycocotools>=2.0
+gunicorn>=22.0
+transformers>=5.0.0
+huggingface_hub>=0.25
+google-cloud-storage>=2.14

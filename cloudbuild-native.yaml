@@ -1,0 +1,49 @@
+steps:
+  # Download model weights from private GCS bucket (no HuggingFace token needed).
+  # The weights are ~6.9 GB total and rarely change (only on new SAM releases).
+  # To update: download new weights from HF Hub and upload to the bucket.
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'mkdir -p models/sam3 && gsutil -m cp gs://${_MODELS_BUCKET}/sam3/* models/sam3/'
+
+  # Pull previous image for Docker layer cache. For code-only changes
+  # (backend/frontend), this reuses the heavy layers (PyTorch, SAM3,
+  # Flash Attention, model weights) and cuts build time from ~20 min
+  # to ~2-3 min. Allowed to fail on first build or after image prune.
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull ${_IMAGE} || true'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--cache-from'
+      - '${_IMAGE}'
+      - '-f'
+      - 'Dockerfile.native'
+      - '-t'
+      - '${_IMAGE}'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_IMAGE}']
+
+images:
+  - '${_IMAGE}'
+
+options:
+  machineType: 'E2_HIGHCPU_32'
+  diskSizeGb: 200
+
+timeout: '2400s'
+
+# Override these per-project:
+#   gcloud builds submit --config=cloudbuild-native.yaml \
+#     --substitutions=_IMAGE=REGION-docker.pkg.dev/PROJECT/REPO/sam3-native:latest,_MODELS_BUCKET=YOUR-MODELS-BUCKET
+substitutions:
+  _IMAGE: 'us-central1-docker.pkg.dev/YOUR_PROJECT/cloud-run-images/sam3-native:latest'
+  _MODELS_BUCKET: 'YOUR-MODELS-BUCKET'
