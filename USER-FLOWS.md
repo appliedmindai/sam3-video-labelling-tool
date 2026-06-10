@@ -120,22 +120,22 @@ Assets are committed in a follow-up commit; until then, fixture-dependent steps 
 
 **Must NOT:**
 - Leave `GET /api/status` returning `phase: "extracting"` or `phase: "initializing"` after a pipeline failure — the phase must transition to `"error"` (N8).
-- Create a session directory without writing `meta.json` before the pipeline starts — `meta.json` is written synchronously in the upload handler before `start_pipeline` is called (upload handler lines 64–76 of `routes/video.py`).
-- Accept a second concurrent upload while a pipeline is running — `start_pipeline` returns `(False, reason)` and the route responds 409; document this: the backend returns `{"error": reason}` with HTTP 409.
-- Use a form field name other than `video` for the file and `fps` / `max_resolution` for the parameters (exact field names from `routes/video.py` line 28, 40, 41 and `api.ts` `uploadVideo`).
+- Create a session directory without writing `meta.json` before the pipeline starts — `meta.json` is written synchronously in the upload handler before `start_pipeline` is called (the `meta.json` write in `upload_video()` before `start_pipeline` is called (`routes/video.py`)).
+- Accept a second concurrent upload while a pipeline is running — `start_pipeline` returns `(False, reason)` and the route responds 409 with `{"error": reason}`.
+- Use a form field name other than `video` for the file and `fps` / `max_resolution` for the parameters (exact field names from `upload_video()`'s `video` form field in `routes/video.py` and `uploadVideo` in `api.ts`).
 
 **Verify:**
 1. `[API]` `curl -s -X POST http://localhost:5555/api/video/upload -F "video=@tests/fixtures/harness/sample.mp4" -F "fps=5" -F "max_resolution=2048"` → Expect: HTTP 200, JSON body contains `session_id` (UUID string) and `duplicate: false`.
 2. `[API]` Poll `GET http://localhost:5555/api/status` every 500 ms → Expect: `phase` walks `"extracting"` → `"initializing"` → `"ready"` in order; `progress` is non-decreasing within each phase; `session_id` matches the value from step 1.
 3. `[DISK]` Inspect `backend/sessions/<session_id>/` → Expect: `meta.json` exists with `fps: 5`; `frames/` directory exists; `frames/*.jpg` count ≈ video duration (seconds) × 5 (±1 frame).
 4. `[BROWSER]` Upload `tests/fixtures/harness/sample.mp4` via the UI file picker with default settings → Expect: progress bar advances through extraction and initialization steps; annotation UI (canvas + class panel) renders without a page reload.
-5. `[HUMAN]` The first frame renders correctly on the canvas at full width with no distortion or blank area.
+5. `[HUMAN]` The first frame renders correctly on the canvas at full width with no distortion or blank area. → Expect: the first frame renders on the canvas, undistorted, at correct aspect ratio.
 
 ---
 
 ### UF-1.2 Resume Session
 
-**Contract:** Clicking Resume on a session card calls `POST /api/session/resume/<session_id>`, which starts a background pipeline (local: `InitSessionStep` only; cloud: `DownloadSessionStep` then `InitSessionStep`), returns 202 immediately, and lands the user in the annotation UI with all prior classes, objects, masks, and prompts intact once the pipeline reaches `"ready"`.
+**Contract:** Clicking Resume on a session card calls `POST /api/session/resume/<session_id>`, which starts a background pipeline (local: `InitSessionStep` only; cloud: `DownloadSessionStep` then `InitSessionStep`), returns 202 immediately, and lands the user in the annotation UI with all prior classes, objects, masks, and prompts intact once the pipeline reaches `"ready"`. Resume also reconnects to any in-progress propagation (full coverage in UF-4.3).
 
 **Must NOT:**
 - Lose or mutate any persisted mask, prompt, or class data during resume — `masks.json`, `prompts.json`, and `state.json` must be byte-identical to their pre-close snapshots (N5 applies: state.json must never contain the wipe fingerprint post-resume).
@@ -160,7 +160,7 @@ Assets are committed in a follow-up commit; until then, fixture-dependent steps 
 - Exit silently on GCS upload failure in cloud mode — must return HTTP 503 with `unsynced_files` array and surface the retry dialog (N6; cloud mode only — NOT RUN locally).
 - Leave `GET /api/status` returning a phase other than `"idle"` after a successful close (N8).
 - Leave a propagation thread holding `SAM3Service._lock` after close — `close_session` cancels propagation before acquiring the lock; after close, `GET /api/segment/propagation-status/<session_id>` must report `{"status": "idle"}` (N9).
-- Return a 2xx response if SAM3 state was never initialized for the session — `close_session` handles the case gracefully (session absent from `_sessions` is a no-op in `close_session`).
+- Crash or return a 5xx when closing a session whose SAM3 state was never initialized — `close_session` treats an absent session as a no-op (`self._sessions.pop(session_id, None)`) and the route returns 200.
 
 **Verify:**
 1. `[BROWSER]` Annotate a bbox on the keyframe, adjust the padding slider, then immediately click Close (within 500 ms of the padding change) → Resume the session → Expect: the padding value from before close is present and matches what was set.
