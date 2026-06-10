@@ -39,6 +39,8 @@ make dev   # Backend on :5555, frontend on :5173
 
 Device selection is automatic: MPS on Apple Silicon, CUDA on NVIDIA, CPU otherwise. The SAM3 backend is also automatic — the native `facebookresearch/sam3` predictor on CUDA, HuggingFace Transformers elsewhere. Override with `SAM3_DEVICE` and `SAM3_BACKEND` env vars.
 
+Hitting a `401 Cannot access gated repo` error on first segmentation? See **[docs/troubleshooting.md](docs/troubleshooting.md)**.
+
 ## Docker (local, NVIDIA GPU)
 
 ```bash
