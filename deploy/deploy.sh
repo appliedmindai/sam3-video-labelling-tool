@@ -427,7 +427,6 @@ step_deploy() {
     --min-instances 0 \
     --max-instances 1 \
     --no-cpu-throttling \
-    --termination-grace-period 30 \
     --port 8080 \
     --allow-unauthenticated \
     --set-env-vars "SEGMENT_MODE=cloud,GCS_BUCKET=$SESSIONS_BUCKET,SAM3_BACKEND=native,AUTH_PASSWORD=$PASSWORD"

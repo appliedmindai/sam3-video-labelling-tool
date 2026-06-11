@@ -99,8 +99,9 @@ After every deploy, run the **Deploy smoke set** in
 - `--min-instances 0` — scales to zero after ~30 min idle. GCS sync
   persists masks/prompts/state; the next visit re-downloads the session.
 - `--timeout 3600` — propagation streams over a single SSE request.
-- `--termination-grace-period 30` — the SIGTERM handler flushes dirty
-  files to GCS before the container dies.
+- Termination grace is Cloud Run's fixed ~10 s SIGTERM window (not
+  configurable via `gcloud run deploy`); the backend's SIGTERM handler
+  flushes dirty files to GCS within it.
 
 ## Cost
 
