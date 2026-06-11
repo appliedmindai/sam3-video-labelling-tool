@@ -88,7 +88,8 @@ pre-existing):
    buckets** — create-if-missing. Names default from the project
    (`${PROJECT}-sam3-sessions`, `${PROJECT}-sam3-models`), overridable via
    env vars/flags. Only `PROJECT` is required; `REGION` defaults to
-   `us-central1` (L4-capable).
+   `us-east4` (L4-capable; where the existing annotation tool's GPU service
+   already runs).
 4. **Model weights**: skip if `gs://<models-bucket>/sam3/` is populated;
    otherwise download via `hf` (requires a HuggingFace token for the gated
    model — the one genuinely manual prerequisite, called out loudly) and
