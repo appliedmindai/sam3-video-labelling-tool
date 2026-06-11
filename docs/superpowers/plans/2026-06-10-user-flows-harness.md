@@ -142,6 +142,9 @@ git commit -m "docs: USER-FLOWS.md skeleton — usage loop, invariants N1-N10, f
 
 ### Task 2: Tier-1 group A — session lifecycle (UF-1.1, UF-1.2, UF-1.5)
 
+> **COMPLETED** (see git history dc20610..e5ca25a). The committed USER-FLOWS.md/CLAUDE.md supersede this draft text where they differ (review amendments). Do NOT re-execute this task.
+
+
 **Files:**
 - Modify: `USER-FLOWS.md` (under `## Tier 1 flows`)
 
@@ -190,6 +193,9 @@ git commit -m "docs: harness Tier-1 group A — session lifecycle flows UF-1.x"
 
 ### Task 3: Tier-1 group B — segmentation (UF-3.1, UF-3.2, UF-3.3)
 
+> **COMPLETED** (see git history dc20610..e5ca25a). The committed USER-FLOWS.md/CLAUDE.md supersede this draft text where they differ (review amendments). Do NOT re-execute this task.
+
+
 **Files:**
 - Modify: `USER-FLOWS.md`
 
@@ -232,6 +238,9 @@ git commit -m "docs: harness Tier-1 group B — segmentation flows UF-3.x"
 ---
 
 ### Task 4: Tier-1 group C — propagation (UF-4.1–4.4)
+
+> **COMPLETED** (see git history dc20610..e5ca25a). The committed USER-FLOWS.md/CLAUDE.md supersede this draft text where they differ (review amendments). Do NOT re-execute this task.
+
 
 **Files:**
 - Modify: `USER-FLOWS.md`
@@ -284,6 +293,9 @@ git commit -m "docs: harness Tier-1 group C — propagation flows UF-4.x"
 
 ### Task 5: Tier-1 group D — deletion, export, recovery (UF-5.1, UF-8.1, UF-8.2, UF-12)
 
+> **COMPLETED** (see git history dc20610..e5ca25a). The committed USER-FLOWS.md/CLAUDE.md supersede this draft text where they differ (review amendments). Do NOT re-execute this task.
+
+
 **Files:**
 - Modify: `USER-FLOWS.md`
 
@@ -335,6 +347,9 @@ git commit -m "docs: harness Tier-1 group D — deletion, export, recovery flows
 
 ### Task 6: Tier-2 table, impact map, deploy smoke set
 
+> **COMPLETED** (see git history dc20610..e5ca25a). The committed USER-FLOWS.md/CLAUDE.md supersede this draft text where they differ (review amendments). Do NOT re-execute this task.
+
+
 **Files:**
 - Modify: `USER-FLOWS.md`
 
@@ -373,6 +388,9 @@ git commit -m "docs: harness Tier-2 table, impact map, deploy smoke set"
 ---
 
 ### Task 7: CLAUDE.md integration
+
+> **COMPLETED** (see git history dc20610..e5ca25a). The committed USER-FLOWS.md/CLAUDE.md supersede this draft text where they differ (review amendments). Do NOT re-execute this task.
+
 
 **Files:**
 - Modify: `sam3-video-labelling-tool/CLAUDE.md` (the "User Flows" section and "Deploy smoke tests" subsection)
@@ -415,9 +433,11 @@ git commit -m "docs: point CLAUDE.md at USER-FLOWS.md harness; move smoke tests"
 
 - [ ] **Step 2: Upload sample.mp4 via `[API]`** (UF-1.1 step 1 verbatim); record `session_id`; wait for `ready`.
 
-- [ ] **Step 3: Choose canonical coordinates** — `Read` 2–3 extracted frame images from the session dir; pick, per object: one positive click point near its center, and a bounding box; pick a `text_query` matching an object category. Choose the keyframe (usually frame 0; pick a frame where all objects are clearly visible).
+- [ ] **Step 3: Choose canonical coordinates** — `Read` 2–3 extracted frame images from the session dir; pick, per object: one positive click point near its center, and a bounding box; pick a `text_query` matching an object category. **The keyframe is pinned to frame 0** (the Tier-1 flows hardcode `frame_idx: 0`); if objects aren't all visible on frame 0, trim/re-encode the video so they are.
 
 - [ ] **Step 4: Create golden annotations** — via `[API]`: create 2–3 classes; click-segment object 1, box-segment object 2 (text-detect object 3 if present); propagate all objects forward (UF-4.2 path). Visually confirm by `Read`ing a few composite/overlay outputs or checking mask areas are sane (> 1 % and < 90 % of frame).
+
+- [ ] **Step 4b: Set bbox padding on object 1's keyframe** — `PUT /api/session/state/<session_id>` with a known padding (e.g. `{"1": {"0": {"top": 10, "bottom": 10, "left": 5, "right": 5}}}`) so UF-8.1 step 4 (padding arithmetic) has a padded golden to verify against. Record the values in `fixture.json.bbox_padding`.
 
 - [ ] **Step 5: Export golden** — `POST /api/export/session/{id}` with `include_video:false` → save as `tests/fixtures/harness/golden_session.zip`.
 
@@ -434,12 +454,15 @@ git commit -m "docs: point CLAUDE.md at USER-FLOWS.md harness; move smoke tests"
   ],
   "text_query": "<category>",
   "expected_text_detections": 0,
+  "expected_object_count": 2,
+  "mask_frame_count": 0,
+  "bbox_padding": {"1": {"0": {"top": 10, "bottom": 10, "left": 5, "right": 5}}},
   "iou_thresholds": {"vs_golden": 0.80, "repeat_click": 0.99},
   "propagation_sample_frames": [2, 5, 9]
 }
 ```
 
-(`expected_text_detections` and `propagation_sample_frames` filled with measured values.)
+(`expected_text_detections`, `expected_object_count` (count in the golden session's `state.json`, including text-detected objects), `mask_frame_count` (frames with ≥1 mask in the golden `masks.json`), and `propagation_sample_frames` filled with measured values; `bbox_padding` echoes Step 4b.)
 
 - [ ] **Step 6b: Write `iou.py`** — decodes two RLE mask strings using the backend's RLE decoder (see `backend/app/services/mask_storage.py` or equivalent — verify the actual module) and prints IoU; used by all IoU checks in USER-FLOWS.md.
 
