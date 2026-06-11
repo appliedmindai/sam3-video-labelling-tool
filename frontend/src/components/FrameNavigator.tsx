@@ -239,10 +239,11 @@ export default function FrameNavigator({
             className="flex-1"
           />
 
-          {/* Track bar */}
+          {/* Track bar — mx-2 matches the slider thumb's in-bounds inset (size-4 thumb
+              center travels [8px, width-8px]), so frame percentages align with the thumb */}
           <div
             ref={trackBarRef}
-            className="relative mt-1 h-2.5 cursor-pointer rounded-full bg-muted/50"
+            className="relative mx-2 mt-1 h-2.5 cursor-pointer rounded-full bg-muted/50"
             onMouseMove={handleTrackMouseMove}
             onMouseLeave={handleTrackMouseLeave}
             onClick={(e) => {
@@ -254,7 +255,7 @@ export default function FrameNavigator({
             {/* Mask presence segments */}
             {maxFrame > 0 && trackSegments.segments.map((seg, i) => {
               const left = (seg.start / maxFrame) * 100;
-              const width = ((seg.end - seg.start + 1) / maxFrame) * 100;
+              const width = ((seg.end - seg.start) / maxFrame) * 100;
               return (
                 <div
                   key={i}
