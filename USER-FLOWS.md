@@ -27,6 +27,10 @@ The loop, after any behavioral change:
 session, each `[BROWSER]` step is reported NOT RUN and appended to the
 `[HUMAN]` checklist — never silently skipped.
 
+**Scenario tests:** for broad changes (SAM3 service, propagation, persistence)
+or before a release, also run the end-to-end **Scenario tests (S1–S5)** — they
+compose the flows into full user journeys; S4 is the model-regression canary.
+
 **Poll budget:** Polling steps (e.g. waiting for `phase: "ready"`) poll every 1–2 s and FAIL after 5 minutes for extraction/init on the fixture video, or immediately if phase becomes `"error"` (unless the flow expects `error`).
 
 **SSE steps:** always use `curl -sN` (`--no-buffer`) when consuming `text/event-stream` responses; without `-N`, curl buffers piped output and events appear late or not at all. Terminate early with `timeout <secs> curl -sN ...` or by killing the process.
@@ -514,6 +518,96 @@ Run after every deploy, against the deployed URL — step 0: `curl $URL/api/stat
 | 6 | UF-4.2 | Shift+click two objects; propagate — both objects tracked simultaneously |
 | 7 | UF-1.6 | Click Cancel during model init (`POST /api/job/cancel`); returns to session list; `GET /api/status` shows idle |
 | 8 | UF-1.5 | Close session; `GET /api/status` returns `{"phase": "idle", "session_id": null}` |
+
+---
+
+## Scenario tests (S1–S5)
+
+End-to-end scenarios that compose Tier-1 flows into the user journeys that matter most.
+Run them against the committed fixture (import `tests/fixtures/harness/golden_session.zip`
+per UF-8.2 to get a known-good session). Each scenario references the flows it composes —
+the per-step mechanics (exact curls, payloads, expected bodies) live in those flow entries;
+the scenario adds the journey-level expectation. Scenarios with `[BROWSER]` legs follow the
+degradation rule when no browser tool is available.
+
+### S1 — Propagation survives a UI disconnect
+
+*Composes: UF-4.1, UF-4.3.*
+
+1. `[BROWSER]` Import + resume the golden session; select object 1; start Forward propagation from frame 0. → Expect: masks advance live on the timeline.
+2. `[BROWSER]` After ~3 frames have ticked, close the tab (no session close — just kill the tab).
+3. `[API]` Confirm the backend kept going: poll `GET /api/segment/propagation-status/<session_id>` → Expect: `running` with `frames_processed` still increasing.
+4. `[BROWSER]` Reopen `http://localhost:5173`. → Expect: auto-resumes into the annotation UI, reconnects to the stream (UF-4.3), progress continues from the live frame — not from 0.
+5. `[DISK]` After completion: obj 1 has masks on frames 0–39, contiguous, exactly once (the disk gap-check from UF-4.3 step 4 is the completeness authority — frames processed while disconnected appear in no event log).
+
+Verified 2026-06-10 at API level (drop SSE after 3 events → re-subscribe → contiguous 0–39 on disk). `[BROWSER]` legs pending browser tooling.
+
+### S2 — Selection scopes propagation: only the selected mask propagates
+
+*Composes: UF-4.1, global invariant N1.*
+
+The golden session has two annotated objects. Propagating one must not touch the other —
+this is the harness's headline invariant (the SAM2-era bug that silently corrupted
+non-target masks).
+
+1. `[DISK]` Snapshot `masks.json`.
+2. `[BROWSER]` Select ONLY object 1 (single click on its mask — no Shift). PropagationBar shows one chip. Propagate Forward.
+3. `[API]` Every SSE FrameResult contains obj 1 and nothing else.
+4. `[DISK]` Object 2's RLE strings byte-identical to the snapshot on every frame (N1).
+5. Repeat with object 2 selected → object 1 untouched.
+
+Verified 2026-06-10 at API level (40/40 events obj-1-only; obj 2 byte-identical). The
+`[BROWSER]` leg additionally proves the UI's selection state is what reaches the backend (N4).
+
+### S3 — Closing the session never loses data, in any situation
+
+*Composes: UF-1.5, UF-7.1, UF-7.2, UF-12; global invariant N6.*
+
+Run each variant from a resumed golden session with at least one fresh edit (e.g. nudge a
+bbox padding slider). After each, resume and assert: `masks.json`, `prompts.json`
+byte-identical to their pre-variant snapshots, and the fresh edit survived in `state.json`.
+
+| Variant | Procedure | Expected survival mechanism |
+|---|---|---|
+| a. Clean close | Close button → confirm | UF-1.5: explicit flush before `close` |
+| b. Close < 500 ms after a padding edit | Move slider, immediately close | `handleCloseSession` flushes the debounced save (N6) |
+| c. Close during propagation | Start propagation, then close | Close cancels propagation first; frames persisted before cancel survive (UF-4.4) |
+| d. Tab close, no session close | Kill the tab mid-session | `beforeunload`/`pagehide` beacon → `POST /api/segment/flush` (UF-7.2) |
+| e. Backend killed mid-session | `pgrep -f "run.py"` (or `"flask.*5555"`) → kill all PIDs, restart | Atomic writes — no torn files (UF-12 steps 1–3) |
+| f. Backend killed mid-propagation | Kill during an active propagation run | Frames persisted before the kill survive; the in-flight frame is lost (acceptable — never partially written); resume re-inits SAM3 |
+
+Variants a, e verified 2026-06-10 (byte-identical after restart; clean close → idle).
+b, d are `[BROWSER]`; c, f are `[API]`-runnable but not yet exercised — run them on the
+next harness pass.
+
+### S4 — Golden keyframe replay: same prompts ⇒ same masks ⇒ same tracks
+
+*Composes: UF-3.1, UF-3.2, UF-4.1. This is the model-regression canary: if SAM3, the
+dtype patches, or the prompt-replay path drift, this scenario degrades first.*
+
+For each object in the golden session, individually:
+
+1. `[DISK]` Read the object's prompt from the golden `prompts.json` (obj 1: click `[160, 296]`, label 1; obj 2: box `[168, 345, 225, 460]` — canonical copies in `fixture.json`).
+2. `[API]` Batch-delete ALL of that object's masks (UF-5.1 route, all 40 frames). → Expect: object has zero masks; the other object untouched.
+3. `[API]`/`[BROWSER]` Re-apply the prompt exactly as recorded (click at the same coords / draw the same box). → Expect: keyframe mask IoU ≥ 0.80 vs the golden keyframe mask (via `iou.py`; observed 1.00 on the build machine — same model + device is near-deterministic).
+4. `[API]` Propagate Forward from frame 0. → Expect: completes for all 40 frames; on `fixture.json.propagation_sample_frames` (10, 25, 39), IoU ≥ 0.80 vs golden (observed 1.00).
+5. Restore for the next object: the re-application + propagation IS the restore.
+
+Verified 2026-06-10 for the click+delete+re-click path (IoU 1.00) and full propagation
+(IoU 1.00 on all sample frames); the explicit per-object delete-all → replay → propagate
+sweep is the canonical regression run going forward.
+
+### S5 — Multi-select journey: detect, propagate together, reverse
+
+*Composes: UF-3.3, UF-4.2; global invariants N1, N10.*
+
+1. `[BROWSER]` On the golden keyframe, Shift+click both objects → two chips in the PropagationBar.
+2. `[BROWSER]` Propagate Forward → both masks advance together in one pass; selection persists after completion.
+3. `[BROWSER]` Immediately propagate Back (no re-selection) → reverse pass runs with the same set.
+4. `[DISK]` `prompts.json` byte-identical throughout (N10); every selected object has masks on every propagated frame.
+
+Multi-object forward propagation verified 2026-06-10 at API level (both objects in all
+40 events, 0.96–0.99 confidence). Selection persistence and the reverse leg are `[BROWSER]`.
 
 ---
 
