@@ -1,0 +1,9 @@
+{
+  "name": "user-guide-recorder",
+  "private": true,
+  "type": "module",
+  "description": "Records the user-guide flow videos against a deployed (or local) instance. Not part of the app build.",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

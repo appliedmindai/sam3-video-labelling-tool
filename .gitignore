@@ -32,3 +32,8 @@ deploy/.deploy-state.json
 
 # Worktrees
 .worktrees/
+
+# User-guide recorder (local tooling)
+scripts/user-guide-recorder/node_modules/
+scripts/user-guide-recorder/raw/
+scripts/user-guide-recorder/package-lock.json
