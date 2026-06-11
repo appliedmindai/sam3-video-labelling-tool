@@ -16,20 +16,23 @@ interface PasswordGateProps {
 export function PasswordGate({ onUnlocked }: PasswordGateProps) {
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<"wrong" | "network" | null>(null);
 
   const submit = async () => {
     const candidate = value.trim();
     if (!candidate || checking) return;
     setChecking(true);
-    setError(false);
-    const ok = await verifyPassword(candidate);
-    setChecking(false);
-    if (ok) {
-      setAuthToken(candidate);
-      onUnlocked();
-    } else {
-      setError(true);
+    setError(null);
+    try {
+      const ok = await verifyPassword(candidate);
+      if (ok) {
+        setAuthToken(candidate);
+        onUnlocked();
+      } else {
+        setError(ok === null ? "network" : "wrong");
+      }
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -56,10 +59,16 @@ export function PasswordGate({ onUnlocked }: PasswordGateProps) {
             onChange={(e) => setValue(e.target.value)}
             autoFocus
           />
-          {error && (
+          {error === "wrong" && (
             <p className="text-xs text-destructive">
               Wrong password. It was printed by the deploy script
               (`./deploy/deploy.sh password` recovers it).
+            </p>
+          )}
+          {error === "network" && (
+            <p className="text-xs text-destructive">
+              Couldn&apos;t reach the server — it may be cold-starting.
+              Try again in a minute.
             </p>
           )}
           <Button type="submit" className="w-full" disabled={checking || !value.trim()}>

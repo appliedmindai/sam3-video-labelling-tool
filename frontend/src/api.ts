@@ -39,15 +39,20 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   return res;
 }
 
-/** Check a candidate password against the backend without storing it. */
-export async function verifyPassword(candidate: string): Promise<boolean> {
+/**
+ * Check a candidate password against the backend without storing it.
+ * Returns true (accepted), false (rejected), or null (network error —
+ * e.g. Cloud Run cold start), so the gate can tell "wrong password"
+ * apart from "server unreachable".
+ */
+export async function verifyPassword(candidate: string): Promise<boolean | null> {
   try {
     const res = await fetch(`${BASE}/health`, {
       headers: { "X-Auth-Token": candidate },
     });
     return res.ok;
   } catch {
-    return false;
+    return null;
   }
 }
 
