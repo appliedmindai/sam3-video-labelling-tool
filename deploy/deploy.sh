@@ -79,9 +79,11 @@ if os.path.exists(path):
     except Exception:
         data = {}
 data[key] = value
-with open(path, "w") as f:
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
     json.dump(data, f, indent=2, sort_keys=True)
     f.write("\n")
+os.replace(tmp, path)
 PYEOF
 }
 
@@ -107,6 +109,18 @@ confirm_destructive() { # confirm_destructive "question"
     [[ "$reply" =~ ^[Yy]$ ]] || { say "Aborted."; exit 1; }
   else
     die "destructive command in a non-interactive shell requires --yes"
+  fi
+}
+
+# Bucket purge deletes irrecoverable annotation data. Interactively we
+# ALWAYS prompt, even with --yes; non-interactively --yes is required
+# (enforced by confirm_destructive earlier) and we proceed loudly.
+confirm_purge() {
+  if [ -t 0 ]; then
+    read -r -p "[deploy] $1 (y/N) " reply
+    [[ "$reply" =~ ^[Yy]$ ]] || { say "Aborted."; exit 1; }
+  else
+    warn "non-interactive purge — deleting buckets because --yes and --purge were both given"
   fi
 }
 
@@ -315,7 +329,7 @@ step_weights() {
   say "  downloading facebook/sam3 (~7 GB) to $tmp"
   hf download facebook/sam3 --local-dir "$tmp/sam3"
   say "  uploading to gs://$MODELS_BUCKET/sam3/"
-  gsutil -m cp "$tmp/sam3/"* "gs://$MODELS_BUCKET/sam3/"
+  gsutil -m cp -r "$tmp/sam3/"* "gs://$MODELS_BUCKET/sam3/"
   rm -rf "$tmp"
   state_set uploaded_weights "true"
 }
@@ -354,8 +368,9 @@ step_build() {
 
 step_deploy() {
   say "8/8 deploy to Cloud Run"
-  local current_image="" current_password=""
+  local current_image="" current_password="" had_service="false"
   if service_exists; then
+    had_service="true"
     current_image=$(deployed_image)
     current_password=$(get_deployed_password)
   fi
@@ -401,7 +416,7 @@ step_deploy() {
     --allow-unauthenticated \
     --set-env-vars "SEGMENT_MODE=cloud,GCS_BUCKET=$SESSIONS_BUCKET,SAM3_BACKEND=native,AUTH_PASSWORD=$PASSWORD"
 
-  [ -z "$current_image" ] && state_set created_service "true"
+  [ "$had_service" = "false" ] && state_set created_service "true"
   state_set last_image "$IMAGE"
   state_set last_deploy_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -463,7 +478,8 @@ cmd_logs() {
   resolve_config
   if [ "$FOLLOW" = "true" ]; then
     say "tailing logs (Ctrl-C to stop)"
-    gcloud beta run services logs tail "$SERVICE" --region "$REGION" --project "$PROJECT"
+    gcloud beta run services logs tail "$SERVICE" --region "$REGION" --project "$PROJECT" \
+      || die "log tailing requires the gcloud beta component: gcloud components install beta"
   else
     gcloud run services logs read "$SERVICE" --region "$REGION" --project "$PROJECT" --limit 100
   fi
@@ -537,7 +553,7 @@ cmd_down() {
   fi
 
   if [ "$PURGE" = "true" ]; then
-    confirm_destructive "PERMANENTLY delete gs://$SESSIONS_BUCKET (all annotation data) and gs://$MODELS_BUCKET (weights)?"
+    confirm_purge "PERMANENTLY delete gs://$SESSIONS_BUCKET (all annotation data) and gs://$MODELS_BUCKET (weights)?"
     if [ "$(state_get created_sessions_bucket)" = "true" ]; then
       gsutil -m rm -r "gs://$SESSIONS_BUCKET"
       state_set created_sessions_bucket "false"
@@ -567,7 +583,7 @@ while [ $# -gt 0 ]; do
     --rotate-password)  ROTATE_PASSWORD="true" ;;
     --purge)            PURGE="true" ;;
     -f)                 FOLLOW="true" ;;
-    -h|--help)          sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)          awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *)                  die "unknown argument: $1 (see --help)" ;;
   esac
   shift
