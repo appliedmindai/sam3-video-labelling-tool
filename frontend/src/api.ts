@@ -10,6 +10,48 @@ import {
 
 const BASE = (import.meta.env.VITE_API_BASE as string) || "/api";
 
+// ---- Shared-password auth (cloud deploys) -------------------------------
+// Every request carries X-Auth-Token when a token is known. On any 401 the
+// registered callback fires and App.tsx shows the PasswordGate. In local
+// dev the backend never 401s, so none of this activates.
+
+const AUTH_STORAGE_KEY = "sam3-auth-token";
+
+let authToken: string | null = localStorage.getItem(AUTH_STORAGE_KEY);
+let unauthorizedCallback: (() => void) | null = null;
+
+export function setAuthToken(token: string): void {
+  authToken = token;
+  localStorage.setItem(AUTH_STORAGE_KEY, token);
+}
+
+export function onUnauthorized(callback: () => void): void {
+  unauthorizedCallback = callback;
+}
+
+/** fetch() with the auth header injected and 401 detection. */
+async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...(authToken ? { "X-Auth-Token": authToken } : {}),
+    ...((init?.headers as Record<string, string> | undefined) ?? {}),
+  };
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401) unauthorizedCallback?.();
+  return res;
+}
+
+/** Check a candidate password against the backend without storing it. */
+export async function verifyPassword(candidate: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/health`, {
+      headers: { "X-Auth-Token": candidate },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function uploadVideo(
   file: File,
   fps: number = 5,
@@ -24,6 +66,7 @@ export async function uploadVideo(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/video/upload`);
+    if (authToken) xhr.setRequestHeader("X-Auth-Token", authToken);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
         onProgress(e.loaded / e.total);
@@ -34,6 +77,7 @@ export async function uploadVideo(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(JSON.parse(xhr.responseText));
       } else {
+        if (xhr.status === 401) unauthorizedCallback?.();
         reject(new Error(xhr.responseText));
       }
     };
@@ -54,7 +98,7 @@ export async function initSegmentationModel(
   video_width: number;
   propagation?: PropagationStatus | null;
 }> {
-  const res = await fetch(`${BASE}/segment/init/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/segment/init/${sessionId}`, {
     method: "POST",
   });
   if (!res.ok) throw new Error(await res.text());
@@ -69,17 +113,17 @@ export function getFrameUrl(sessionId: string, idx: number): string {
 /** Fetch a frame as a Blob. Retries once on failure. */
 export async function fetchFrameBlob(sessionId: string, idx: number): Promise<Blob> {
   const url = getFrameUrl(sessionId, idx);
-  let res = await fetch(url);
+  let res = await apiFetch(url);
   if (!res.ok) {
     // Retry once
-    res = await fetch(url);
+    res = await apiFetch(url);
     if (!res.ok) throw new Error(`Frame fetch failed: ${res.status}`);
   }
   return res.blob();
 }
 
 export async function getClasses(sessionId: string): Promise<ObjectClass[]> {
-  const res = await fetch(`${BASE}/session/classes/${sessionId}`);
+  const res = await apiFetch(`${BASE}/session/classes/${sessionId}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -89,7 +133,7 @@ export async function createClass(
   name: string,
   color: string,
 ): Promise<ObjectClass> {
-  const res = await fetch(`${BASE}/session/classes/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/session/classes/${sessionId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, color }),
@@ -102,7 +146,7 @@ export async function deleteClass(
   sessionId: string,
   classId: number,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/session/classes/${sessionId}/${classId}`, {
+  const res = await apiFetch(`${BASE}/session/classes/${sessionId}/${classId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(await res.text());
@@ -113,7 +157,7 @@ export async function renameClass(
   classId: number,
   name: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/session/classes/${sessionId}/${classId}`, {
+  const res = await apiFetch(`${BASE}/session/classes/${sessionId}/${classId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
@@ -126,7 +170,7 @@ export async function updateClassColor(
   classId: number,
   color: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/session/classes/${sessionId}/${classId}`, {
+  const res = await apiFetch(`${BASE}/session/classes/${sessionId}/${classId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ color }),
@@ -141,7 +185,7 @@ export async function textSegment(
   objIdStart: number,
   signal?: AbortSignal,
 ): Promise<TextSegmentResult> {
-  const res = await fetch(`${BASE}/segment/text`, {
+  const res = await apiFetch(`${BASE}/segment/text`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -163,7 +207,7 @@ export async function clickSegment(
   points: number[][],
   labels: number[],
 ): Promise<FrameResult> {
-  const res = await fetch(`${BASE}/segment/click`, {
+  const res = await apiFetch(`${BASE}/segment/click`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -184,7 +228,7 @@ export async function boxSegment(
   objId: number,
   box: [number, number, number, number],
 ): Promise<FrameResult> {
-  const res = await fetch(`${BASE}/segment/box`, {
+  const res = await apiFetch(`${BASE}/segment/box`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -259,7 +303,7 @@ export async function propagate(
   if (reverse !== undefined) body.reverse = reverse;
   if (objectIds !== undefined) body.object_ids = objectIds;
 
-  const res = await fetch(`${BASE}/segment/propagate`, {
+  const res = await apiFetch(`${BASE}/segment/propagate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -274,7 +318,7 @@ export async function subscribePropagation(
   onFrame?: (result: FrameResult) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/segment/propagate/subscribe/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/segment/propagate/subscribe/${sessionId}`, {
     signal,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -284,7 +328,7 @@ export async function subscribePropagation(
 export async function getPropagationStatus(
   sessionId: string,
 ): Promise<PropagationStatus> {
-  const res = await fetch(`${BASE}/segment/propagation-status/${sessionId}`);
+  const res = await apiFetch(`${BASE}/segment/propagation-status/${sessionId}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -292,7 +336,7 @@ export async function getPropagationStatus(
 export async function cancelPropagation(
   sessionId: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/segment/propagate/cancel/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/segment/propagate/cancel/${sessionId}`, {
     method: "POST",
   });
   if (!res.ok) throw new Error(await res.text());
@@ -313,7 +357,7 @@ export class CloseSessionUnsyncedError extends Error {
 export async function closeSession(
   sessionId: string,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/segment/close/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/segment/close/${sessionId}`, {
     method: "POST",
   });
   if (res.status === 503) {
@@ -337,7 +381,7 @@ export function flushSyncBeacon(): void {
   const url = `${BASE}/segment/flush`;
   // sendBeacon only supports Blob/FormData/URLSearchParams, not custom headers.
   // Use a keepalive fetch instead, which survives page unload.
-  fetch(url, {
+  apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -349,7 +393,7 @@ export async function removeObject(
   sessionId: string,
   objId: number,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/segment/remove_object`, {
+  const res = await apiFetch(`${BASE}/segment/remove_object`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, obj_id: objId }),
@@ -362,7 +406,7 @@ export async function reassignObject(
   objId: number,
   newClassId: number,
 ): Promise<void> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${BASE}/session/objects/${sessionId}/${objId}/reassign`,
     {
       method: "PUT",
@@ -377,7 +421,7 @@ export async function exportCoco(
   sessionId: string,
   bboxPadding: Record<number, Record<number, BboxPadding>> = {},
 ): Promise<Blob> {
-  const res = await fetch(`${BASE}/export/coco/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/export/coco/${sessionId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ bbox_padding: bboxPadding }),
@@ -387,13 +431,13 @@ export async function exportCoco(
 }
 
 export async function listSessions(): Promise<SessionSummary[]> {
-  const res = await fetch(`${BASE}/video/sessions`);
+  const res = await apiFetch(`${BASE}/video/sessions`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${BASE}/video/sessions/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/video/sessions/${sessionId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(await res.text());
@@ -407,7 +451,7 @@ export interface SessionMasksResponse {
 export async function loadSessionMasks(
   sessionId: string,
 ): Promise<SessionMasksResponse> {
-  const res = await fetch(`${BASE}/session/masks/${sessionId}`);
+  const res = await apiFetch(`${BASE}/session/masks/${sessionId}`);
   if (!res.ok) throw new Error(await res.text());
   const raw = await res.json();
   const rawMasks: Record<string, Record<string, MaskResult>> = raw.masks ?? {};
@@ -428,7 +472,7 @@ export async function loadFrameMasks(
   sessionId: string,
   frameIdx: number,
 ): Promise<Record<number, MaskResult>> {
-  const res = await fetch(`${BASE}/session/masks/${sessionId}/${frameIdx}`);
+  const res = await apiFetch(`${BASE}/session/masks/${sessionId}/${frameIdx}`);
   if (!res.ok) throw new Error(await res.text());
   const raw: Record<string, MaskResult> = await res.json();
   const result: Record<number, MaskResult> = {};
@@ -441,7 +485,7 @@ export async function loadFrameMasks(
 export async function fetchMaskVersions(
   sessionId: string,
 ): Promise<Record<string, number>> {
-  const res = await fetch(`${BASE}/session/masks/${sessionId}/versions`);
+  const res = await apiFetch(`${BASE}/session/masks/${sessionId}/versions`);
   if (!res.ok) throw new Error(await res.text());
   const data: { versions: Record<string, number>; frame_count: number } = await res.json();
   return data.versions;
@@ -528,7 +572,7 @@ export async function deleteFrameMask(
   frameIdx: number,
   objId: number,
 ): Promise<void> {
-  const res = await fetch(`${BASE}/session/masks/${sessionId}/${frameIdx}/${objId}`, {
+  const res = await apiFetch(`${BASE}/session/masks/${sessionId}/${frameIdx}/${objId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(await res.text());
@@ -541,7 +585,7 @@ export async function deleteFrameMasksBySource(
   direction: "left" | "right" | "this",
   currentFrame: number,
 ): Promise<{ deleted_frames: number[] }> {
-  const res = await fetch(`${BASE}/session/masks/${sessionId}/${objId}/by-source`, {
+  const res = await apiFetch(`${BASE}/session/masks/${sessionId}/${objId}/by-source`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -559,7 +603,7 @@ export async function deleteFrameMasksBatch(
   objId: number,
   frameIndices: number[],
 ): Promise<{ deleted_frames: number[]; deleted_count: number }> {
-  const res = await fetch(`${BASE}/session/masks/${sessionId}/${objId}/batch`, {
+  const res = await apiFetch(`${BASE}/session/masks/${sessionId}/${objId}/batch`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ frame_indices: frameIndices }),
@@ -571,7 +615,7 @@ export async function deleteFrameMasksBatch(
 export async function getSessionState(
   sessionId: string,
 ): Promise<SessionState> {
-  const res = await fetch(`${BASE}/session/state/${sessionId}`);
+  const res = await apiFetch(`${BASE}/session/state/${sessionId}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -592,7 +636,7 @@ export async function putSessionState(
   sessionId: string,
   state: SessionState,
 ): Promise<number> {
-  const res = await fetch(`${BASE}/session/state/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/session/state/${sessionId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(state),
@@ -621,7 +665,7 @@ export async function putSessionState(
 export async function loadPrompts(
   sessionId: string,
 ): Promise<Record<number, Record<number, KeyframePrompt>>> {
-  const res = await fetch(`${BASE}/session/prompts/${sessionId}`);
+  const res = await apiFetch(`${BASE}/session/prompts/${sessionId}`);
   if (!res.ok) throw new Error(await res.text());
   const raw: Record<string, Record<string, KeyframePrompt>> = await res.json();
   const result: Record<number, Record<number, KeyframePrompt>> = {};
@@ -640,7 +684,7 @@ export async function recalculatePrompt(
   frameIdx: number,
   objId: number,
 ): Promise<FrameResult> {
-  const res = await fetch(`${BASE}/segment/recalculate`, {
+  const res = await apiFetch(`${BASE}/segment/recalculate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, frame_idx: frameIdx, obj_id: objId }),
@@ -653,7 +697,7 @@ export async function exportSession(
   sessionId: string,
   includeVideo: boolean = false,
 ): Promise<Blob> {
-  const res = await fetch(`${BASE}/export/session/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/export/session/${sessionId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ include_video: includeVideo }),
@@ -680,6 +724,7 @@ export async function importSession(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/export/import-session`);
+    if (authToken) xhr.setRequestHeader("X-Auth-Token", authToken);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
         onProgress(e.loaded / e.total);
@@ -690,6 +735,7 @@ export async function importSession(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(JSON.parse(xhr.responseText));
       } else {
+        if (xhr.status === 401) unauthorizedCallback?.();
         reject(new Error(xhr.responseText));
       }
     };
@@ -700,7 +746,7 @@ export async function importSession(
 }
 
 export async function openSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${BASE}/session/open/${sessionId}`, {
+  const res = await apiFetch(`${BASE}/session/open/${sessionId}`, {
     method: "POST",
   });
   if (!res.ok) throw new Error(await res.text());
@@ -712,16 +758,16 @@ export interface HealthResponse {
   uptime_s: number;
 }
 
-/** Lightweight health check — no auth, no SAM3 lock. */
+/** Lightweight health check — no SAM3 lock; auth handled by apiFetch. */
 export async function checkHealth(): Promise<HealthResponse> {
-  const res = await fetch(`${BASE}/health`);
+  const res = await apiFetch(`${BASE}/health`);
   if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
   return res.json();
 }
 
-/** Full service status — no auth needed. Returns phase, progress, session info. */
+/** Full service status. Returns phase, progress, session info. */
 export async function getServiceStatus(): Promise<ServiceStatus> {
-  const resp = await fetch(`${BASE}/status`);
+  const resp = await apiFetch(`${BASE}/status`);
   if (!resp.ok) throw new Error(`Status check failed: ${resp.status}`);
   return resp.json();
 }
@@ -730,7 +776,7 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
 export async function resumeSession(
   sessionId: string,
 ): Promise<{ session_id: string; video_name: string }> {
-  const resp = await fetch(`${BASE}/session/resume/${sessionId}`, {
+  const resp = await apiFetch(`${BASE}/session/resume/${sessionId}`, {
     method: "POST",
   });
   if (!resp.ok) {
@@ -742,7 +788,7 @@ export async function resumeSession(
 
 /** Cancel the current background pipeline job (extraction or init). */
 export async function cancelJob(): Promise<{ status: string }> {
-  const resp = await fetch(`${BASE}/job/cancel`, {
+  const resp = await apiFetch(`${BASE}/job/cancel`, {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Cancel failed: ${resp.status}`);
@@ -751,7 +797,7 @@ export async function cancelJob(): Promise<{ status: string }> {
 
 /** Clear the error phase on the backend so the UI can return to the session list. */
 export async function dismissPipelineError(): Promise<{ status: string }> {
-  const resp = await fetch(`${BASE}/status/dismiss-error`, {
+  const resp = await apiFetch(`${BASE}/status/dismiss-error`, {
     method: "POST",
   });
   if (!resp.ok) throw new Error(`Dismiss error failed: ${resp.status}`);
