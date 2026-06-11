@@ -31,10 +31,9 @@ export function onUnauthorized(callback: () => void): void {
 
 /** fetch() with the auth header injected and 401 detection. */
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
-  const headers: Record<string, string> = {
-    ...(authToken ? { "X-Auth-Token": authToken } : {}),
-    ...((init?.headers as Record<string, string> | undefined) ?? {}),
-  };
+  // Headers normalizes all HeadersInit shapes (plain object, Headers, array)
+  const headers = new Headers(init?.headers);
+  if (authToken) headers.set("X-Auth-Token", authToken);
   const res = await fetch(url, { ...init, headers });
   if (res.status === 401) unauthorizedCallback?.();
   return res;
