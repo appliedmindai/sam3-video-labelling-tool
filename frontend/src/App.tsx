@@ -25,6 +25,7 @@ import {
   createClass,
   checkHealth,
   dismissPipelineError,
+  onUnauthorized,
 } from "./api.ts";
 import {
   getCachedMasks,
@@ -61,6 +62,7 @@ import ObjectChoiceDialog from "./components/ObjectChoiceDialog.tsx";
 import ClassChoiceDialog from "./components/ClassChoiceDialog.tsx";
 import DeleteMasksPanel from "./components/DeleteMasksPanel.tsx";
 import ThemeToggle from "./components/ThemeToggle.tsx";
+import { PasswordGate } from "./components/PasswordGate";
 
 type PendingAnnotation =
   | { type: "click"; x: number; y: number; label: number; frameIdx: number }
@@ -83,6 +85,13 @@ function getPaddingForKeyframe(
 function App() {
   // Server-driven UI state — polls /api/status for phase-based routing
   const { status: serviceStatus, refetch: refetchStatus } = useServiceStatus();
+
+  const [authRequired, setAuthRequired] = useState(false);
+
+  // 401 from any API call (cloud deploys) → show the password gate.
+  useEffect(() => {
+    onUnauthorized(() => setAuthRequired(true));
+  }, []);
 
   const lastActivityRef = useRef(Date.now());
 
@@ -1932,6 +1941,17 @@ function App() {
     }
     return frames;
   }, [prompts, clickPoints, selectedObjId]);
+
+  if (authRequired) {
+    return (
+      <PasswordGate
+        onUnlocked={() => {
+          setAuthRequired(false);
+          refetchStatus();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
