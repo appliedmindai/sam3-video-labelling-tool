@@ -41,6 +41,20 @@ make dev   # Backend on :5555, frontend on :5173
 
 Device selection is automatic: MPS on Apple Silicon, CUDA on NVIDIA, CPU otherwise. The SAM3 backend is also automatic — the native `facebookresearch/sam3` predictor on CUDA, HuggingFace Transformers elsewhere. Override with `SAM3_DEVICE` and `SAM3_BACKEND` env vars.
 
+### NVIDIA GPU support (local PC)
+
+There's no hardcoded GPU list — the backend detects your card's compute capability at startup and picks the right dtype strategy automatically:
+
+| GPU family | Compute cap | How it runs |
+|---|---|---|
+| RTX 50-series (Blackwell) | 12.0 | Native bfloat16 — works out of the box |
+| RTX 40-series (Ada) | 8.9 | Native bfloat16 — works out of the box |
+| RTX 30-series (Ampere) | 8.6 | Native bfloat16 — works out of the box |
+| RTX 20-series / GTX 16-series (Turing) | 7.5 | Automatic float16 autocast workaround — works, but ~2.75× slower than native bfloat16 |
+| GTX 10-series (Pascal) and older | ≤ 6.1 | Untested — falls into the float16 path but lacks FP16 Tensor Cores; not recommended |
+
+Any RTX 30/40/50 card runs the same native bfloat16 path as the L4/A100 used in production. RTX 20-series uses the same float16 patch built for the T4 (see [blog/sam3-native-cuda-the-dtype-maze.md](blog/sam3-native-cuda-the-dtype-maze.md) for the details). Note the Turing path keeps the weights in float32 (~7 GB on disk), so it needs noticeably more VRAM than the bfloat16 path — the reference cards for each path are the T4 (16 GB) and L4 (24 GB).
+
 Hitting a `401 Cannot access gated repo` error on first segmentation? See **[docs/troubleshooting.md](docs/troubleshooting.md)**.
 
 ## Docker (local, NVIDIA GPU)
