@@ -465,6 +465,8 @@ git commit -m "test: add harness fixture — sample video, golden session, canon
 
 - [ ] **Step 2: Execute every Tier-1 flow's `[API]` and `[DISK]` steps in ID order** against the fixture, recording PASS/FAIL/NOT RUN per step. `[BROWSER]` steps: run if a browser tool is available this session, else mark NOT RUN per the degradation rule.
 
+   Empirical confirmations this run must settle (claims that were source-traced for native CUDA but hedged for the local HF/MPS backend): (a) UF-4.1's N2 recipe expects propagating a prompt-less object to yield an SSE `error` event rather than `{"done": true}` with zero frames — confirm on HF/MPS and amend the Expect if reality differs; (b) UF-4.4's "N or N+1 frames persisted" tolerance under cancel timing.
+
 - [ ] **Step 3: Fix the document, not just note failures** — every step that is wrong-as-written (bad endpoint, wrong expected value, impossible ordering) gets corrected in USER-FLOWS.md. If a step reveals an actual app bug, do NOT fix the app in this task — file it and add the corresponding Must NOT line per maintenance rule 2.
 
 - [ ] **Step 4: Report** — produce the per-flow PASS/FAIL table + the `[HUMAN]` checklist for Danilo (this is the harness's standard output format; its first real production).
