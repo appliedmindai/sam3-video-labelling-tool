@@ -2,7 +2,7 @@
 
 ## Project
 
-SAM3 Video Labelling Tool — video annotation powered by SAM 3.1. React 18 + TypeScript + Vite frontend, Flask + PyTorch backend. Dual-backend: HuggingFace Transformers on MPS (Mac), native `facebookresearch/sam3` on CUDA (production). Runs locally or on Cloud Run + GCS (`SEGMENT_MODE=cloud`, bucket from `GCS_BUCKET` env var — no auth layer).
+SAM3 Video Labelling Tool — video annotation powered by SAM 3.1. React 18 + TypeScript + Vite frontend, Flask + PyTorch backend. Dual-backend: HuggingFace Transformers on MPS (Mac), native `facebookresearch/sam3` on CUDA (production). Runs locally or on Cloud Run + GCS (`SEGMENT_MODE=cloud`, bucket from `GCS_BUCKET` env var; optional shared-password auth via `AUTH_PASSWORD` env var — see N11 in USER-FLOWS.md).
 
 ## Commands
 
