@@ -47,22 +47,13 @@ Cloud mode: `g.bucket` is set per-request by a `before_request` hook from the `G
 
 ## User Flows
 
-### Single-Object Annotation & Propagation
-1. Upload video → frames extracted at configured FPS
-2. Select a class (or create one) in the sidebar
-3. Switch to Click or Box tool
-4. Click/draw on the canvas to segment an object on the current frame
-5. Use the Propagation Bar (Back / Both / Forward) to track the object across frames
-6. Review confidence warnings, add correction keyframes as needed
+Full flow catalog, global negative invariants (N1–N10), test fixture, and the
+verification harness live in **[USER-FLOWS.md](USER-FLOWS.md)**.
 
-### Multi-Object Propagation (Shift+Click)
-1. Annotate multiple objects on keyframe(s) using the single-object flow above
-2. Shift+click objects on the canvas or in the sidebar to build a multi-select set
-3. The Propagation Bar shows colored chips for each selected object
-4. Hit Forward/Backward/Both to propagate all selected objects in a single SAM3 pass
-5. SAM3 tracks all objects simultaneously — produces better masks at object boundaries
-6. Selection persists after propagation for immediate reverse-direction propagation
-7. Normal click (without Shift) or Esc exits multi-select
+**After any behavioral change:** look up the touched files in the harness's
+Impact map and verify the listed flows + invariants before claiming success.
+When code and USER-FLOWS.md disagree, the document wins — or must be amended in
+the same commit.
 
 ## Principles
 
@@ -172,19 +163,7 @@ The test suite runs locally with no GCS, no real SAM3 model, and no GPU. **All t
 
 ### Deploy smoke tests
 
-Run these manually after every deploy (replace the host with your Cloud Run URL or proxy). They catch integration issues that unit tests miss.
-
-| # | Test | What it verifies |
-|---|---|---|
-| 1 | `curl $URL/api/status` | Service is up, returns `phase: "idle"` |
-| 2 | Upload a new video via the UI | Upload → extraction progress → init progress → annotation UI |
-| 3 | Close tab during extraction, reopen | Progress bar resumes at correct phase |
-| 4 | Close tab in annotation UI, reopen | Auto-resumes into annotation UI |
-| 5 | Resume an existing session from the list | Init progress → annotation UI (cloud: GCS download + init) |
-| 6 | Single-object propagation | Click/box an object, propagate forward |
-| 7 | Multi-object propagation | Shift+click two objects, propagate — both tracked |
-| 8 | Cancel during model init | Cancel button → returns to session list |
-| 9 | Close session | Returns to session list, `/api/status` shows idle |
+Run the **Deploy smoke set** in [USER-FLOWS.md](USER-FLOWS.md) after every deploy. It covers status, upload, tab-close recovery, resume, single- and multi-object propagation, cancel-during-init, and close.
 
 ## Gotchas
 
