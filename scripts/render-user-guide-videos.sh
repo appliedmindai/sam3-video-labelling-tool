@@ -9,17 +9,19 @@ RAW="$HERE/user-guide-recorder/raw"
 OUT="$HERE/../docs/user-guide/videos"
 mkdir -p "$OUT"
 
-# flow:speed-factor — 1 = real time
+# flow:speed-factor — 1 = as recorded. Playwright already collapses idle
+# stretches (frames are only emitted on repaints), so raw clips are short;
+# keep factors gentle or actions flash by unreadably.
 SPEEDS="
 01-login:1
-02-upload:6
-03-click:1.5
-04-box:1.5
-05-detect:2
-06-propagate:3
-07-propagate-multi:3
-08-export:1.5
-09-close-resume:5
+02-upload:2
+03-click:1.25
+04-box:1.25
+05-detect:1.5
+06-propagate:1.5
+07-propagate-multi:1.5
+08-export:1
+09-close-resume:1
 "
 
 for spec in $SPEEDS; do

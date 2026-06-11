@@ -4,6 +4,8 @@ A video annotation tool powered by [SAM 3.1](https://github.com/facebookresearch
 
 ![Screenshot](docs/screenshot.gif)
 
+**New here? The [User Guide](docs/user-guide.md) walks through every flow with short screen recordings** — login, upload, click/box/text segmentation, propagation, export, and session resume.
+
 ## Features
 
 - **Click, box & text segmentation** — SAM 3.1 generates precise masks from clicks, bounding boxes, or natural language text prompts
@@ -52,27 +54,17 @@ Session data persists in the `/data` volume. Uses nginx + gunicorn with SAM 3.1.
 
 ## Cloud Run Deployment
 
-Deploys to Cloud Run with an NVIDIA L4 GPU and a GCS bucket for session storage — scales to zero when idle (~$0.70/hr only while annotating). See **[docs/deploy-cloud-run.md](docs/deploy-cloud-run.md)** for the full guide, including the model-weights bucket setup and security options.
+One script provisions and deploys everything to Cloud Run with an NVIDIA L4 GPU and a GCS bucket for session storage — scales to zero when idle (~$0.70/hr only while annotating). See **[DEPLOY.md](DEPLOY.md)** for the full guide; coding agents get the compact runbook in **[deploy/README.md](deploy/README.md)**.
 
 ```bash
-# 1. Build (~3-6 min with layer cache, ~15-20 min on first build)
-gcloud builds submit --config=cloudbuild-native.yaml \
-  --substitutions=_IMAGE=$REGION-docker.pkg.dev/$PROJECT/cloud-run-images/sam3-native:latest,_MODELS_BUCKET=$MODELS_BUCKET
-
-# 2. Deploy
-gcloud run deploy sam3-annotator \
-  --image $REGION-docker.pkg.dev/$PROJECT/cloud-run-images/sam3-native:latest \
-  --region us-east4 \
-  --gpu 1 --gpu-type nvidia-l4 --cpu 8 --memory 24Gi \
-  --timeout 3600 --concurrency 8 \
-  --min-instances 0 --max-instances 1 \
-  --no-cpu-throttling \
-  --set-env-vars "SEGMENT_MODE=cloud,GCS_BUCKET=$SESSIONS_BUCKET,SAM3_BACKEND=native"
+PROJECT=your-gcp-project ./deploy/deploy.sh up
 ```
+
+The script enables APIs, creates the registry/buckets/service account, stages the SAM3 weights, builds the image (hash-tagged, layer-cached), and deploys. Re-runs skip everything already done. It prints the service URL and a generated three-word password at the end (`./deploy/deploy.sh password` recovers it; `down` tears everything back down).
 
 Key constraints: `max-instances=1` (stateful — SAM3 inference state lives in memory), `concurrency=8` (GPU access serialized by an in-process lock), scales to zero when idle.
 
-> **⚠️ No built-in authentication.** This tool has no user accounts or token auth. If you deploy it publicly reachable, anyone with the URL can use your GPU and read your sessions. Use Cloud Run IAM (`--no-allow-unauthenticated` + `gcloud run services proxy`) or put your own auth layer in front. See the security section of the deploy guide.
+> **🔑 Shared-password auth.** Every API request needs an `X-Auth-Token` header matching the deploy-time `AUTH_PASSWORD`; the web UI prompts once per browser. It keeps strangers off your GPU and out of your sessions — for stricter needs use Cloud Run IAM or IAP instead (see DEPLOY.md).
 
 ## Technical Report
 
