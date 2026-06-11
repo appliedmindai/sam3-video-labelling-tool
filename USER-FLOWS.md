@@ -503,7 +503,7 @@ Run after every deploy, against the deployed URL — step 0: `curl $URL/api/stat
 | 0 | — | `GET $URL/api/status` returns `{"phase": "idle", ...}` — service is up |
 | 1 | UF-1.1 | Upload a new video via the UI; progress bar advances through extraction and initialization; annotation UI appears |
 | 2 | UF-1.1 (tab-close during extraction) | Close the tab during extraction, reopen — progress bar resumes at the correct phase |
-| 3 | UF-1.1 (tab-close during init) | Close the tab during initialization, reopen — auto-resumes into annotation UI |
+| 3 | UF-1.2 (tab-close in annotation UI) | Close the tab while in the annotation UI, reopen — auto-resumes into the annotation UI |
 | 4 | UF-1.2 | Click Resume on an existing session from the list; cloud: GCS download + init; annotation UI renders with prior masks |
 | 5 | UF-3.1 + UF-4.1 | Click an object on the keyframe; propagate forward; masks appear frame-by-frame |
 | 6 | UF-4.2 | Shift+click two objects; propagate — both objects tracked simultaneously |
