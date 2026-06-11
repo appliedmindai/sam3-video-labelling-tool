@@ -156,8 +156,15 @@ const FLOWS = {
       await pause(400);
       await page.getByRole("button", { name: "Find", exact: true }).click();
       await pause(8000); // text detection inference + mask render
-      // undo the detection so the session keeps one object per class
-      await page.getByRole("button", { name: "Undo", exact: true }).click();
+      // Delete the detected object so the session keeps one object per
+      // class (text detections aren't covered by Undo). The new object has
+      // the highest id; its row contains a nested X delete button.
+      const texts = await page.getByRole("button", { name: /Object #\d+/ }).allTextContents();
+      const maxId = Math.max(...texts.map((t) => parseInt(t.match(/#(\d+)/)[1], 10)));
+      const row = page.getByRole("button", { name: new RegExp(`Object #${maxId}(\\D|$)`) });
+      await row.locator("button").click();
+      await pause(800);
+      await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
       await pause(2000);
     },
   },
