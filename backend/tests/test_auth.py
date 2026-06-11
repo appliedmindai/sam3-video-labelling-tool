@@ -56,7 +56,7 @@ class TestAuthEnabled:
         # CORS preflights never carry custom headers; they must not 401.
         client = make_client(monkeypatch, PASSWORD)
         resp = client.options("/api/status")
-        assert resp.status_code != 401
+        assert resp.status_code < 400  # preflight must succeed, not just not-401
 
 
 class TestAuthDisabled:
