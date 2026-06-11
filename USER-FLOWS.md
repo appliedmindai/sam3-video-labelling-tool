@@ -238,6 +238,93 @@ Assets are committed in a follow-up commit; until then, fixture-dependent steps 
 
 ---
 
+### UF-4.1 Single-Object Propagation
+
+**Contract:** With one object selected and a mask on the current frame, clicking Back, Both, or Forward posts `POST /api/segment/propagate`, which starts a background thread holding `SAM3Service._lock` and streams per-frame masks over SSE. Each SSE event is a `data: <JSON>\n\n` line whose JSON is either a `FrameResult` (`{frame_idx, masks, source_keyframe?}`) or the sentinel `{"done": true}`. The frontend's `consumeSseFrames` in `api.ts` invokes `onFrame` for each `FrameResult` and returns when the sentinel arrives. Frames where any mask's `confidence` field is less than 0.75 (the `CONFIDENCE_THRESHOLD` constant in `App.tsx`) are flagged with an amber timeline tick and accumulate in the `confidenceWarnings` state; a banner with frame count and a "Go to frame" shortcut appears after propagation completes. The `source_keyframe` field on each persisted mask in `masks.json` records the user-authored keyframe that initiated the propagation run.
+
+**Precondition:** Golden session open (run UF-1.2 steps 1–2 first); use its `<session_id>`. Object 1 must have a click or box prompt on frame 0 (run UF-3.1 or UF-3.2 step 2 first). Object 2 must also have a mask on frame 0 (run UF-3.2 step 2 for `<obj_2_id>` to establish the non-target baseline). Fixture values from `tests/fixtures/harness/fixture.json`; IoU via `tests/fixtures/harness/iou.py`.
+
+**Must NOT:**
+- Create, modify, or delete masks for any non-target object (N1 — headline invariant): byte-compare all non-target objects' RLE strings in `masks.json` before and after propagation. Induce: propagate object 1 forward while object 2 has a mask on frame 0; diff the before/after snapshots for object 2's entries — any change is a failure.
+- Regenerate a previously deleted mask (N2): delete the keyframe mask of object 2 (`DELETE /api/session/masks/<session_id>/0/<obj_2_id>`), then propagate object 1; inspect `masks.json` — object 2's frame 0 entry must remain absent after propagation.
+- Leave `GET /api/segment/propagation-status/<session_id>` reporting `status: "running"` after the SSE stream delivers `{"done": true}` (N8): the propagation finally block pops the entry under `_propagation_lock` so `get_propagation_status` returns `{"status": "idle"}` (missing key → idle default).
+- Lose the `source_keyframe` metadata on propagated masks: each propagated frame's mask entry in `masks.json` must have a `source_keyframe` key equal to the integer frame index of the user's keyframe (not `null`).
+
+**Verify:**
+1. `[DISK]` Snapshot `masks.json` (save as `masks_before.json`). Record the RLE strings for all non-target object entries. → Expect: snapshot saved.
+2. `[API]` `curl -s -X POST http://localhost:5555/api/segment/propagate -H "Content-Type: application/json" -d '{"session_id":"<session_id>","start_frame_idx":0,"reverse":false,"object_ids":[<obj_1_id>]}'` and consume the SSE response: for each `data:` line parse JSON; collect all `FrameResult` events until `{"done": true}`. → Expect: HTTP 200 with `Content-Type: text/event-stream`; every `FrameResult` has `frame_idx` in `[1, num_frames-1]` and `masks` containing only the key `"<obj_1_id>"`; `{"done": true}` arrives as the final event.
+3. `[API]` `curl -s http://localhost:5555/api/segment/propagation-status/<session_id>` → Expect: `{"status": "idle"}` (N8 checkpoint).
+4. `[DISK]` Inspect `masks.json` → Expect: every propagated frame entry for `<obj_1_id>` has `source_keyframe: 0` (or the fixture's keyframe index, whichever was used); all non-target object RLE strings are byte-identical to the `masks_before.json` snapshot (N1). If object 2's frame 0 entry was deleted in the Precondition, confirm it is absent (N2) (NOT RUN until fixture lands — depends on prior delete step).
+5. `[API]` For each frame index in `fixture.json`'s `propagation_sample_frames`, fetch `GET http://localhost:5555/api/session/masks/<session_id>/<frame_idx>` and compare `masks["<obj_1_id>"].rle` against the corresponding golden mask using `tests/fixtures/harness/iou.py` → Expect: IoU ≥ 0.80 for every sampled frame (NOT RUN until fixture lands).
+6. `[BROWSER]` In the annotation UI, select object 1 and click Forward in the PropagationBar → Expect: green timeline ticks appear frame-by-frame as propagation streams; the canvas advances to each completed frame live; amber ticks appear on frames where confidence < 0.75; after completion the status bar reports the count of low-confidence frames (or "Propagation complete" if none); a "Go to frame N" shortcut is visible in the warning banner for each amber-ticked frame.
+7. `[HUMAN]` Spot-check frames at approximately 25%, 50%, and 75% of the video → Expect: the mask follows the object boundary without bleed into adjacent objects.
+
+---
+
+### UF-4.2 Multi-Object Propagation
+
+**Contract:** Shift+clicking objects in the sidebar or canvas builds a multi-select set displayed as colored chips in the PropagationBar. When propagation is triggered with multiple objects selected, the frontend passes `object_ids: [<id1>, <id2>, ...]` in the request body. The backend calls `reset_and_replay_objects` (which calls `_reset_inference_state` clearing all object registrations, then clears `_active_object`), then calls `replay_prompts_if_needed` to re-register all requested objects' prompts from `prompts.json`. This full reset+replay is mandatory because the native SAM3 predictor raises `RuntimeError("Cannot add new object id N after tracking starts")` if new objects are registered after any propagation has run — incremental addition is not possible. SAM3 then tracks all objects in a single pass. Selection (`selectedObjIds`) persists in React state after propagation completes, enabling immediate reverse-direction propagation without re-selecting.
+
+**Precondition:** Golden session open (run UF-1.2 steps 1–2 first). Objects 1 and 2 each have a prompt and mask on frame 0 (run UF-3.1 step 2 for obj 1, UF-3.2 step 2 for obj 2). If a third object exists, record its frame 0 RLE as the non-target baseline. Fixture values from `tests/fixtures/harness/fixture.json`.
+
+**Must NOT:**
+- Drop any selected object during reset+replay (N10): after multi-object propagation with `object_ids:[<obj_1_id>, <obj_2_id>]`, both objects must have masks on the new frames. Verify by inspecting `masks.json` for each propagated frame.
+- Touch unselected objects' masks (N1): byte-compare any third object's RLE strings in `masks.json` before and after — must be byte-identical.
+- Mutate `prompts.json` during replay (code review, not runtime): `replay_prompts_if_needed` calls `load_all_prompts` for reading, then calls `add_click`/`add_box`/`add_mask` on the SAM3 predictor — none of these write to `prompts.json`; the file must be byte-identical before and after multi-object propagation. Verify by diff.
+- Attempt to incrementally add objects after tracking started (code review, not runtime): the multi-object path in `segment.py propagate()` calls `sam.reset_and_replay_objects` unconditionally when `len(object_ids) != 1`, which clears tracking state before replay. The single-object path uses `ensure_active_object` (also resets if switching objects). Neither path calls `add_new_points_or_box` on an already-tracking predictor with a new `obj_id`. Reference: `backend/app/routes/segment.py` `propagate()` and CLAUDE.md § "SAM3 & Device Constraints".
+
+**Verify:**
+1. `[DISK]` Snapshot `masks.json` (save as `masks_before.json`) and `prompts.json` (save as `prompts_before.json`). → Expect: snapshots saved.
+2. `[API]` `curl -s -X POST http://localhost:5555/api/segment/propagate -H "Content-Type: application/json" -d '{"session_id":"<session_id>","start_frame_idx":0,"reverse":false,"object_ids":[<obj_1_id>,<obj_2_id>]}'` and consume SSE until `{"done": true}`. → Expect: HTTP 200; every `FrameResult` event's `masks` contains keys for both `"<obj_1_id>"` and `"<obj_2_id>"`; no other obj_id appears in any event.
+3. `[DISK]` Inspect `masks.json` → Expect: every propagated frame has entries for both `<obj_1_id>` and `<obj_2_id>`; any third object's RLE strings are byte-identical to `masks_before.json` (N1, N10). Diff `prompts.json` against `prompts_before.json` → Expect: byte-identical (N10).
+4. `[BROWSER]` Shift+click object 1 and object 2 in the sidebar → Expect: two colored chips appear in the PropagationBar, one per object. Click Forward → Expect: propagation starts; both objects' masks advance on each frame; canvas shows two overlapping colored overlays. After completion, the PropagationBar still shows both chips (selection persists) and the Back button is enabled for immediate reverse propagation.
+5. `[API]` After multi-object propagation completes, POST a single-object click for object 1 on frame 0 → Expect: HTTP 200 within 10 s (the reset+replay inside `ensure_active_object` for the subsequent click confirms no lock is held and inference state is accessible).
+
+---
+
+### UF-4.3 Propagation Reconnect
+
+**Contract:** If the browser tab is closed or the SSE connection is dropped while propagation is running, the backend continues: the propagation thread holds `SAM3Service._lock` and persists masks frame-by-frame via `persist_fn`. Reopening the tab triggers `loadSession` which calls `reconnectPropagation` (fire-and-forget). `reconnectPropagation` calls `GET /api/segment/propagation-status/<session_id>`; if `status == "running"`, it calls `subscribePropagation` (`GET /api/segment/propagate/subscribe/<session_id>`) which returns an SSE stream of the remaining frames. Frames processed before reconnect are backfilled by reading each missed frame's masks from the API in the background. The guard against a second concurrent propagation is the backend: `start_propagation` raises `ValueError` (→ HTTP 409) if `status == "running"`, so a second `POST /api/segment/propagate` is rejected; `reconnectPropagation` does not POST propagate — it only subscribes.
+
+**Precondition:** Golden session open (run UF-1.2 steps 1–2 first); use its `<session_id>`. Object 1 has a prompt on frame 0. `make dev` running. Fixture video must have at least 10 frames so propagation takes > 5 s.
+
+**Must NOT:**
+- Duplicate or skip frames on reconnect: after a full propagation run (either undisturbed or after reconnect), `masks.json` must contain exactly one entry per frame in the expected range — no frame appears twice and no frame in the range is missing. Verify by counting keys and confirming each `frame_idx` in the range has exactly one entry per object.
+- Spawn a second propagation on reconnect (code review, not runtime): `reconnectPropagation` in `App.tsx` calls `subscribePropagation` (a GET SSE subscribe), never `propagate` (a POST that starts a new run). The backend's `subscribe_propagation` route guards with `if status["status"] != "running": return done-sentinel immediately`. A second `POST /api/segment/propagate` during a running propagation returns HTTP 409 from `start_propagation`.
+
+**Verify:**
+1. `[API]` Start propagation: `curl -s -X POST http://localhost:5555/api/segment/propagate -H "Content-Type: application/json" -d '{"session_id":"<session_id>","start_frame_idx":0,"reverse":false,"object_ids":[<obj_1_id>]}'` — do NOT consume the full stream. After receiving at least 3 `FrameResult` events (≥ 3 frames processed), close the curl connection with Ctrl+C. → Expect: curl exits; `GET http://localhost:5555/api/segment/propagation-status/<session_id>` returns `{"status":"running","frames_processed":<N>}` with N ≥ 3.
+2. `[API]` Reconnect to the running propagation: `curl -s http://localhost:5555/api/segment/propagate/subscribe/<session_id>` (GET, SSE) and consume until `{"done": true}`. → Expect: HTTP 200 with `Content-Type: text/event-stream`; `FrameResult` events arrive for the remaining frames; final sentinel `{"done": true}` delivered; no duplicate frame_idx values in the combined step-1 + step-2 event logs.
+3. `[API]` After the subscribe stream closes: `GET http://localhost:5555/api/segment/propagation-status/<session_id>` → Expect: `{"status": "idle"}` (propagation completed and cleaned up).
+4. `[DISK]` Inspect `masks.json` → Expect: entries exist for every frame in `[1, num_frames-1]` for `<obj_1_id>`; each frame appears exactly once; no gaps and no duplicates.
+5. `[API]` Count entries in `masks.json` from a completed undisturbed propagation (re-run UF-4.1 on a fresh session) and compare to the step-4 reconnect run → Expect: identical frame count for the target object.
+6. `[BROWSER]` While propagation is running (watch the green ticks advancing on the timeline), close the browser tab. Reopen `http://localhost:5173` and resume the session → Expect: the progress bar resumes mid-propagation (not from 0%); green ticks appear for already-completed frames; remaining frames complete; final mask count equals an undisturbed run.
+
+---
+
+### UF-4.4 Cancel Propagation
+
+**Contract:** Clicking the Stop button in the PropagationBar calls `propagateAbortRef.current.abort()` (which drops the SSE connection client-side) and then `POST /api/segment/propagate/cancel/<session_id>`. The cancel route calls `sam.cancel_propagation(session_id)`, which sets the `threading.Event` in `_cancel_events[session_id]`. The propagation loop in `_run_propagation` checks `cancel_event.is_set()` once per frame, after `persist_fn` has written the current frame's masks but before queuing the result to subscribers. Frames persisted before the cancel check retains their masks on disk; the cancel is best-effort — one additional frame may complete between the event being set and the loop checking it. After the loop exits, the finally block sets `sm.set_propagating(False)`, delivers the `None` sentinel to all subscribers (ending their SSE streams), and pops `_propagation_state` so `get_propagation_status` returns idle. The UI returns to interactive state: `propagating` is reset to `false`, `propagationProgress` to 0.
+
+**Precondition:** Golden session open (run UF-1.2 steps 1–2 first); use its `<session_id>`. Object 1 has a prompt on frame 0. Fixture video must have at least 10 frames.
+
+**Must NOT:**
+- Leave the propagation thread holding `SAM3Service._lock` after cancel (N9): after cancel, `GET /api/segment/propagation-status/<session_id>` must report `{"status": "idle"}` within one frame's inference time (~5 s on MPS per CLAUDE.md's ~2.9 s/frame benchmark, rounded up with margin), and a subsequent `POST /api/segment/click` must respond within 10 s (the lock being held would block indefinitely, not for exactly 10 s — the 10 s bound detects pathological hangs).
+- Roll back already-persisted frames: masks written to `masks.json` before the cancel event was checked must remain in the file after cancel. Verify by snapshotting `masks.json` immediately after the cancel response and confirming the pre-cancel frames' entries are intact.
+- Leave `GET /api/segment/propagation-status/<session_id>` reporting `status: "running"` after cancel completes (N8): the finally block in `_run_propagation` pops `_propagation_state` under `_propagation_lock`.
+
+**Verify:**
+1. `[DISK]` Snapshot `masks.json` before propagation (save as `masks_pre_prop.json`). → Expect: snapshot saved.
+2. `[API]` Start propagation in a background process: `curl -s -X POST http://localhost:5555/api/segment/propagate -H "Content-Type: application/json" -d '{"session_id":"<session_id>","start_frame_idx":0,"reverse":false,"object_ids":[<obj_1_id>]}' &`. Wait for `frames_processed` to reach at least 2: `curl -s http://localhost:5555/api/segment/propagation-status/<session_id>` in a poll loop (1 s interval, max 30 s) until `frames_processed >= 2`. Record `N = frames_processed` at cancel time.
+3. `[API]` Cancel: `curl -s -X POST http://localhost:5555/api/segment/propagate/cancel/<session_id>` → Expect: HTTP 200, `{"ok": true}`.
+4. `[API]` Poll `GET http://localhost:5555/api/segment/propagation-status/<session_id>` every 1 s for up to 10 s → Expect: `{"status": "idle"}` within 10 s (N8, N9). If it remains `"running"` after 10 s, report FAIL — the propagation thread is not respecting the cancel event.
+5. `[DISK]` Inspect `masks.json` → Expect: at least N entries for `<obj_1_id>` (frames 1 through N, noting the off-by-one from the per-frame check — exactly N or N+1 frames may have been written); all pre-cancel entries that were present match `masks_pre_prop.json` plus the new propagated frames (no rollback). No masks were deleted.
+6. `[API]` `curl -s -X POST http://localhost:5555/api/segment/click -H "Content-Type: application/json" -d '{"session_id":"<session_id>","frame_idx":0,"obj_id":<obj_1_id>,"points":[<fixture_click_xy_obj1>],"labels":[1]}'` → Expect: HTTP 200 within 10 s (N9 — confirms `_lock` is not held by a zombie propagation thread).
+7. `[API]` `curl -s http://localhost:5555/api/segment/propagation-status/<session_id>` → Expect: `{"status": "idle"}` (final N8 checkpoint after successful click).
+8. `[BROWSER]` Start propagation via the PropagationBar Forward button; after 2–3 green ticks appear on the timeline, click Stop → Expect: the PropagationBar returns to its pre-propagation state within 5 s; the progress bar disappears; the timeline shows green ticks only for completed frames; annotation tools (click, box) are responsive immediately.
+
+---
+
 ## Tier 2 flows
 
 <!-- populated in Tasks 2–6 of docs/superpowers/plans/2026-06-10-user-flows-harness.md -->
