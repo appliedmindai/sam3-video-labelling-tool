@@ -423,19 +423,92 @@ Assets are committed in a follow-up commit; until then, fixture-dependent steps 
 
 ## Tier 2 flows
 
-<!-- populated in Tasks 2–6 of docs/superpowers/plans/2026-06-10-user-flows-harness.md -->
+Shallow coverage for flows not fully elaborated in Tier 1. One row each; deep verification is referenced to the Tier-1 entry that owns it.
+
+| ID | Flow | Contract (one line) | Invariant to check (one line) |
+|---|---|---|---|
+| UF-1.3 | Import session entry point | `VideoUpload.tsx` shows an Import section with a zip file picker and an Import button; clicking it calls `importSession` in `api.ts` (XHR upload to `POST /api/export/import-session`), then auto-resumes the new session via `POST /api/session/resume/<new_id>`; deep coverage in UF-8.2. | Button is enabled only after a `.zip` file is chosen; a second import while one is in-flight shows progress %, not a second trigger. |
+| UF-1.4 | Delete session | Clicking the trash icon on a session card calls `DELETE /api/video/sessions/<session_id>`; the backend removes the session directory from disk (and the GCS prefix in cloud mode); the frontend evicts any cached frames from IndexedDB via `evictSession` in `maskCache.ts` and removes the card from the list. | Deleting session A must not touch the session directories or IndexedDB entries of any other session. |
+| UF-2.1 | Create class | `POST /api/session/classes/<session_id>` with `{name, color}`; `add_class` in `session_manager.py` appends a new entry with the next sequential integer `id` and returns it; the frontend adds it to React state via `persistState`. | The new class's `id` equals `max(existing ids) + 1` (or 1 if no classes exist); `state.json` on disk reflects the addition. |
+| UF-2.2 | Rename class | `PUT /api/session/classes/<session_id>/<class_id>` with `{name}`; `update_class` in `session_manager.py` updates only the `name` field. | All other class fields (id, color) and all object `class_id` references are unchanged in `state.json`. |
+| UF-2.3 | Change class color | `PUT /api/session/classes/<session_id>/<class_id>` with `{color}`; the canvas and sidebar immediately re-render masks and labels in the new color. | Color update does not alter mask data or prompt data; only `state.json` changes. |
+| UF-2.4 | Toggle class visibility | `handleToggleClassVisibility` in `App.tsx` toggles the class `id` in `hiddenClassIds` state; hidden ⇒ masks are not rendered and objects of that class are deselected from `selectedObjIds`. | Toggling visibility does not write to disk and does not alter `masks.json`, `state.json`, or `prompts.json`. |
+| UF-2.5 | Delete class | `DELETE /api/session/classes/<session_id>/<class_id>`; `delete_class` in `session_manager.py` removes the class and all its objects from `state.json`; the frontend then calls `POST /api/segment/remove_object` for each deleted object (N2, N4). | Objects belonging to the deleted class must have their masks and prompts removed from disk and their inference state cleared in SAM3. |
+| UF-2.6 | Select class | `selectClass` in `App.tsx` sets `selectedClassId`, clears `selectedObjIds`, resets `toolMode` to `"pointer"`, and unhides the class if it was hidden. | Selecting a class does not trigger any backend call and does not modify any persisted state. |
+| UF-2.7 | Auto-create object on first click for an empty class | When the selected class has no objects and the user clicks the canvas with the Click or Box tool, a new object is created automatically without an ObjectChoiceDialog; covered in UF-3.1 Contract. | Cross-ref UF-3.1 — no additional verification needed here. |
+| UF-2.8 | Select object (single) | `selectObj` in `App.tsx` sets `selectedObjIds` to `{id}` and `selectedClassId` to the object's class; if the object's class is deleted (`class_id === -1`), the ClassChoiceDialog opens (UF-2.13); `toolMode` resets to `"pointer"` (N4). | Selecting object A deselects any previously selected object; backend inference state is not changed by selection alone — it is loaded on the next segmentation/propagation action. |
+| UF-2.9 | Multi-select via Shift+click | `toggleObjSelection` in `App.tsx` adds/removes the clicked object from `selectedObjIds`; the PropagationBar shows one colored chip per selected object; covered in UF-4.2. | Cross-ref UF-4.2 — chips appear for each selected object; selection persists after propagation. |
+| UF-2.10 | Clear selection (Esc with 2+ selected / click empty canvas) | Pressing Esc when `selectedObjIds.size >= 2` clears multi-select back to a single-object (or no) selection; clicking empty canvas area with the pointer tool deselects everything. | After clear, `selectedObjIds` is empty (or size ≤ 1 on single-Esc); no backend call is made. |
+| UF-2.11 | Delete object across all frames | `handleObjectDeleted` in `App.tsx` calls `POST /api/segment/remove_object` with `{session_id, obj_id}`; the backend calls `sam.remove_object` (clears inference state, N4), `remove_object_masks` (deletes all frames in `masks.json`, N2), and `delete_object_prompts` (deletes all prompts in `prompts.json`). | No other object's masks, prompts, or class references are altered (N1); `GET /api/segment/propagation-status` must not report the deleted object in any subsequent status. |
+| UF-2.12 | Reassign object to another class | `PUT /api/session/objects/<session_id>/<obj_id>/reassign` with `{class_id}`; `reassign_object` in `session_manager.py` updates the object's `class_id` in `state.json`; the frontend updates React state and re-renders mask overlays in the new class color. | The object's masks and prompts on disk are unaffected; only `state.json` changes. |
+| UF-2.13 | Orphan-object reassignment dialog | When an object's class is deleted, selecting that object (by clicking its mask on canvas or its entry in the sidebar) opens the `ClassChoiceDialog`; the user picks a class, which calls `PUT …/reassign` (UF-2.12) to persist; or creates a new class first. | If the user dismisses the dialog without choosing, the object remains with `class_id === -1` in React state and `selectObj` returns without setting a valid `selectedClassId`. |
+| UF-3.4 | Recalculate keyframe mask | `POST /api/segment/recalculate` re-runs SAM3 inference on the current frame using the object's existing prompt from `prompts.json`, then overwrites the frame's mask in `masks.json`; the frontend updates the mask overlay. | The recalculation does not alter other objects' masks (N1) and does not modify `prompts.json`. |
+| UF-3.5 | Erase prompt via Missing Mask panel | The Missing Mask panel (visible when a prompt exists in React state but no mask is rendered for the selected object on the current frame) shows an "Erase prompt" button; clicking it calls `DELETE /api/session/masks/<session_id>/<frame_idx>/<obj_id>` which removes both the mask and prompt entry for that frame; the frontend clears local mask and prompt state. | After erase, the Missing Mask panel disappears for that frame; `masks.json` and `prompts.json` have no entry for that object/frame; no other object's data is touched (N1). |
+| UF-4.5 | Confidence-warning review | After propagation, frames with `confidence < 0.75` get amber timeline ticks and accumulate in `confidenceWarnings`; a banner shows the count and a single "Go to frame N" shortcut (N = first/lowest-index amber-ticked frame); cross-ref UF-4.1 Verify step 7. | Cross-ref UF-4.1 — banner appears only if at least one frame is below threshold; "Go to frame" navigates to that frame without triggering any API call. |
+| UF-6.1 | Play/pause + playback FPS selector | The play/pause button in `FrameNavigator.tsx` toggles `isPlaying`; while playing, a `setInterval` at `1000 / playbackFps` ms advances `currentFrame`; clicking the FPS label cycles through `FPS_OPTIONS`. | Play/pause does not trigger any API call; playback stops automatically at the last frame. |
+| UF-6.2 | Timeline navigation (slider / arrow keys; tick colors) | Dragging the slider or pressing left/right arrow keys changes `currentFrame`; ticks are amber (`#f59e0b`, 80% opacity) for low-confidence frames and the selected-object color (or `#94a3b8` fallback) for normal inferred frames; keyframe positions are marked with a distinct indicator in `FrameNavigator.tsx`. | Slider and arrow key navigation do not trigger API calls; tick color reflects `lowConfidenceFrames` state, not disk data. |
+| UF-6.3 | Prev/next mask jump | The `ChevronsLeft`/`ChevronsRight` buttons (shown when an object is selected) call `onPrevMask`/`onNextMask` in `App.tsx`, which jump to the nearest frame in `selectedObjFrames` before/after `currentFrame`. | Jump buttons are absent when no object is selected; they do not trigger API calls. |
+| UF-7.1 | Auto-save state | `bboxPadding` changes are debounced 500 ms then flushed via `PUT /api/session/state/<session_id>` with a version token; `persistState` is also called synchronously on class/object mutations; the `stateIsSafeToPersist` guard (N5) blocks saves when the wipe fingerprint is detected. | Auto-save is gated by `sessionLoadedRef` — it must not fire before both state and mask loads have succeeded (cross-ref UF-1.2 Must NOT); `state.json` on disk must never contain the wipe fingerprint (N5). |
+| UF-7.2 | beforeunload/pagehide flush beacon | `window.addEventListener("beforeunload", ...)` and `"pagehide"` both call `flushSyncBeacon` from `api.ts`, which posts `POST /api/segment/flush` with `keepalive: true`; the backend promotes deferred masks and attempts one GCS flush. | The beacon fires for both events (Safari/iOS fires `pagehide` instead of `beforeunload` with bfcache); a failed flush writes an unsynced marker but does not throw (N6). |
+| UF-9.1 | Theme toggle | `ThemeToggle.tsx` reads `localStorage.getItem("theme")` on mount (falling back to `window.matchMedia("(prefers-color-scheme: dark)")`), and toggles between `"light"` and `"dark"` by setting `document.documentElement.classList` and writing to `localStorage`. | Theme persists across page reloads; system preference is honored when no stored value exists; toggle does not trigger any API call. |
+| UF-10.1 | Zoom & pan | Wheel/trackpad scroll zooms (ctrl+wheel or mouse-wheel with no `deltaX`) or pans (two-finger scroll); middle-click or Alt+left-click activates drag-pan mode in `VideoCanvas.tsx`. | Zooming and panning do not trigger API calls; manual zoom/pan exits inspect mode if it was active. |
+| UF-10.2 | Click mask to select / Shift+click toggle | Left-clicking a mask pixel on the canvas with the pointer tool selects that object (calls `selectObj`); Shift+left-click toggles it in/out of `selectedObjIds`; cross-ref UF-2.8/2.9. | Cross-ref UF-2.8 and UF-2.9 — canvas click-to-select uses `hitTestMask` (column-major RLE, LEB128 delta encoding); it must not misidentify which object was hit when masks overlap. |
+| UF-5.2 | Zoom-to-mask + bbox padding sliders | Clicking the inspect toggle in `VideoCanvas.tsx` calls `zoomToMask`, which saves current zoom/pan and centers the view on the selected object's bbox + padding; the four padding sliders in `App.tsx` (top/bottom/left/right, −5–150%) update `bboxPadding` state keyed by `[obj_id][source_keyframe]`; the 500 ms debounced auto-save persists to `state.json`; padding affects export only (cross-ref UF-8.1). | Padding is stored per source-keyframe (not per frame); adjusting padding on one object must not alter another object's padding entries in `state.json`. |
+| UF-11.1 | Frame caching to IndexedDB | After session load, `cacheSession` in `frameCache.ts` downloads all frame JPEGs in the background and stores them in IndexedDB; a progress indicator is shown while `cachingFrames` is true; the canvas reads frames from IDB to avoid repeat network fetches. | Caching runs in the background and must not block annotation; the progress indicator disappears when all frames are cached or on error. |
+| UF-11.2 | Mask caching (versioned smart load) | `loadSessionMasksSmart` in `api.ts` fetches per-frame version numbers, compares them against IDB-cached versions via `findStaleFrames`, and fetches only stale/missing frames (full fetch if >30% stale or <20 frames); results are stored in IDB via `putMasks`. | Cached masks must never serve a version older than the server's current version; the version key in IDB matches the server's `versions` response. |
+| UF-11.3 | Refresh masks button | Clicking the refresh button calls `handleRefreshMasks` in `App.tsx`, which calls `evictSession` to drop the IDB cache for the session, then calls `loadSessionMasksSmart` to re-fetch all masks; the status bar shows `"Refreshed: N frames with masks"`. | Refresh must evict only the current session's IDB entries, not other sessions'; the mask count in the status message equals the number of frames that have at least one mask on disk. |
 
 ---
 
 ## Impact map
 
-<!-- populated in Tasks 2–6 of docs/superpowers/plans/2026-06-10-user-flows-harness.md -->
+After any change, look up every touched file below, collect the listed flow IDs and invariants, and re-verify them.
+
+| Code touched | Re-verify flows | Invariants |
+|---|---|---|
+| `backend/app/services/sam3_service.py`, `backend/app/routes/segment.py` | UF-3.1–3.5, UF-4.1–4.4 | N1–N4, N9, N10 |
+| `backend/app/services/mask_storage.py`, `backend/app/services/prompt_storage.py` | UF-3.1–3.5, UF-4.1–4.4, UF-5.1, UF-5.2, UF-8.1, UF-8.2 | N2, N7 |
+| `backend/app/routes/session.py`, `backend/app/services/session_manager.py` | UF-1.2, UF-2.1–2.13, UF-7.1, UF-7.2, UF-12 | N5, N8 |
+| `backend/app/services/gcs_sync.py`, `backend/app/services/gcs_storage.py` (cloud-mode paths) | UF-1.2, UF-1.4, UF-1.5, UF-7.2, UF-11.1, UF-11.2, UF-11.3 | N6 — plus CLAUDE.md "Cloud mode blind spots" |
+| `backend/app/services/pipeline.py`, `backend/app/routes/video.py` | UF-1.1, UF-1.4, UF-12 | N8 |
+| `backend/app/routes/export.py`, `backend/app/services/exporter.py`, `backend/app/services/session_bundle.py` | UF-8.1, UF-8.2, UF-1.3 | N7 (note the recorded violation in N7) |
+| `backend/app/routes/status.py`, `backend/app/services/pipeline.py` (ServiceState) | UF-12, UF-1.1, UF-4.4 | N8, N9 — `POST /api/job/cancel` and `POST /api/status/dismiss-error` both live here |
+| `backend/app/services/session_lock.py` | All flows that use `session_io_lock` (UF-3.x, UF-4.x, UF-7.x, UF-8.x) | N8 — a deadlock here hangs the entire service |
+| `backend/app/services/atomic_write.py` | UF-12, UF-7.1 | N5, N6 — `atomic_json_dump` is the sole write path for all JSON session files; a restart during a write must not corrupt files |
+| `backend/app/services/unsynced_marker.py` | UF-1.5, UF-7.2 | N6 — retry dialog and GCS sync failure path |
+| `backend/app/services/video_processor.py` | UF-1.1 (frame extraction step) | N8 — extraction failure must transition to `"error"`, not hang |
+| `backend/app/services/session_cache.py` | UF-1.2, UF-2.x, UF-3.x (any route passing `cache=get_session_cache()`) | N5 — stale cache entries must not cause a stale-state read that bypasses the version guard |
+| `frontend/src/App.tsx` | All `[BROWSER]` steps; minimally UF-1.1, UF-1.2, UF-1.5, UF-2.x, UF-4.x, UF-7.1, UF-7.2, UF-12 | N5, N6 — `stateIsSafeToPersist`, `sessionLoadedRef`, and `reconcileFromServer` all live here |
+| `frontend/src/api.ts` | All flows matching the changed endpoint(s) | — verify the Tier-1/Tier-2 rows for every modified function |
+| `frontend/src/components/VideoCanvas.tsx` | UF-3.1, UF-3.2, UF-5.2, UF-10.1, UF-10.2 | — `hitTestMask` (column-major RLE), zoom/pan bindings, inspect mode |
+| `frontend/src/components/AnnotationPanel.tsx` | UF-2.1–2.13, UF-3.x | — class and object list rendering, visibility toggles |
+| `frontend/src/components/PropagationBar.tsx`, `frontend/src/components/ToolBar.tsx` | UF-3.x, UF-4.1–4.4 | N9 — cancel button wires to both client-side abort and `POST .../cancel` |
+| `frontend/src/components/FrameNavigator.tsx`, `frontend/src/components/DeleteMasksPanel.tsx` | UF-5.1, UF-5.2, UF-6.1–6.3 | — tick colors, prev/next mask jump, play/pause, batch delete UI |
+| `frontend/src/components/VideoUpload.tsx`, `frontend/src/components/ExportDialog.tsx`, `frontend/src/components/ExportSessionDialog.tsx` | UF-1.1, UF-1.3, UF-1.4, UF-8.1, UF-8.2 | — import/export entry points, delete session button |
+| `frontend/src/maskCache.ts`, `frontend/src/frameCache.ts` | UF-11.1, UF-11.2, UF-11.3, UF-1.2 | — IDB version keys, evict-session scope, `loadSessionMasksSmart` stale-ratio logic |
+| `frontend/src/hooks/useServiceStatus.ts` | UF-12, UF-1.1, UF-1.2 | N8 — polling interval changes affect session-loss detection latency |
+| `frontend/src/components/ThemeToggle.tsx` | UF-9.1 | — localStorage key, system-preference fallback |
+| `frontend/src/components/ClassChoiceDialog.tsx` | UF-2.13 | — orphan-object reassignment dialog |
+
+A file not listed here ⇒ add a row in the same PR (Maintenance rule 4).
 
 ---
 
 ## Deploy smoke set
 
-<!-- populated in Tasks 2–6 of docs/superpowers/plans/2026-06-10-user-flows-harness.md -->
+Run after every deploy, against the deployed URL — step 0: `curl $URL/api/status` returns `phase: "idle"`.
+
+| # | Flow(s) | What it verifies |
+|---|---|---|
+| 0 | — | `GET $URL/api/status` returns `{"phase": "idle", ...}` — service is up |
+| 1 | UF-1.1 | Upload a new video via the UI; progress bar advances through extraction and initialization; annotation UI appears |
+| 2 | UF-1.1 (tab-close during extraction) | Close the tab during extraction, reopen — progress bar resumes at the correct phase |
+| 3 | UF-1.1 (tab-close during init) | Close the tab during initialization, reopen — auto-resumes into annotation UI |
+| 4 | UF-1.2 | Click Resume on an existing session from the list; cloud: GCS download + init; annotation UI renders with prior masks |
+| 5 | UF-3.1 + UF-4.1 | Click an object on the keyframe; propagate forward; masks appear frame-by-frame |
+| 6 | UF-4.2 | Shift+click two objects; propagate — both objects tracked simultaneously |
+| 7 | UF-12 (job cancel) | Click Cancel during model init (`POST /api/job/cancel`); returns to session list; `GET /api/status` shows idle |
+| 8 | UF-1.5 | Close session; `GET /api/status` returns `{"phase": "idle", "session_id": null}` |
 
 ---
 
