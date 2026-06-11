@@ -132,3 +132,77 @@ def test_beacon_flush_noop_when_no_sync_manager(tmp_path, monkeypatch):
     assert body["ok"] is True
     assert body["uploaded"] == 0
     assert body["failed"] == []
+
+
+def test_text_detect_resets_tracker_before_bridging_masks(tmp_path, monkeypatch):
+    """Text detection after a propagation must reset the tracker state before
+    registering detected instances — the native SAM3 predictor rejects new
+    object ids once tracking has started (regression: "Cannot add new object
+    id 14 after tracking starts. All existing object ids: [13]").
+    """
+    import numpy as np
+    from pycocotools import mask as pmask_utils
+
+    monkeypatch.setenv("SEGMENT_MODE", "")
+    from app.config import set_session_cache
+    set_session_cache(None)
+
+    sid = "text-sess"
+    sdir = os.path.join(str(tmp_path), sid)
+    os.makedirs(sdir)
+    (tmp_path / sid / "masks.json").write_text("{}")
+    (tmp_path / sid / "prompts.json").write_text("{}")
+
+    import app.routes.segment as segment_mod
+    monkeypatch.setattr(segment_mod, "SESSIONS_DIR", str(tmp_path))
+
+    mask = np.zeros((8, 8), dtype=np.uint8)
+    mask[2:5, 2:5] = 1
+    rle = pmask_utils.encode(np.asfortranarray(mask))
+    rle = {"size": rle["size"], "counts": rle["counts"].decode("utf-8")}
+
+    calls = []
+
+    class FakeSam:
+        # Simulates the native predictor after a propagation run.
+        tracking_started = True
+
+        def add_text_prompt(self, session_id, frame_idx, text):
+            return {
+                "frame_idx": frame_idx,
+                "text": text,
+                "instances": [
+                    {"obj_id": 0, "rle": rle, "confidence": 0.9, "area": 9},
+                ],
+            }
+
+        def reset_and_replay_objects(self, session_id, session_dir, object_ids):
+            calls.append("reset")
+            self.tracking_started = False
+
+        def add_mask(self, session_id, frame_idx, obj_id, binary_mask):
+            calls.append(f"add_mask:{obj_id}")
+            if self.tracking_started:
+                raise RuntimeError(
+                    f"Cannot add new object id {obj_id} after tracking starts. "
+                    "All existing object ids: [13]."
+                )
+            return {"frame_idx": frame_idx, "masks": {}}
+
+    monkeypatch.setattr(segment_mod, "sam", FakeSam())
+
+    from app import create_app
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as tc:
+        res = tc.post("/api/segment/text", json={
+            "session_id": sid,
+            "frame_idx": 4,
+            "text": "buttons",
+            "obj_id_start": 14,
+        })
+
+    assert res.status_code == 200, res.get_json()
+    assert calls and calls[0] == "reset", f"tracker not reset before add_mask: {calls}"
+    assert "add_mask:14" in calls

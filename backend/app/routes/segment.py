@@ -90,6 +90,14 @@ def text_segment():
         # Persist remapped masks to disk and register in tracker for propagation
         session_dir = os.path.join(SESSIONS_DIR, session_id)
         if result["instances"]:
+            # The native predictor rejects new object ids once tracking has
+            # started (e.g. after a propagation). Reset the inference state so
+            # the detected instances register cleanly; prior objects replay
+            # from their saved prompts on next use (active-object model).
+            sam.reset_and_replay_objects(
+                session_id, session_dir,
+                [inst["obj_id"] for inst in result["instances"]],
+            )
             obj_masks = {}
             # Phase 1: SAM3 calls (must NOT be inside session_io_lock to avoid
             # deadlock with propagation's persist_fn which holds SAM3._lock).
