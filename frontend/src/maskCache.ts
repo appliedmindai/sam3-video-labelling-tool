@@ -286,6 +286,31 @@ export const putMasksMemoryOnly = (
 };
 
 /**
+ * Merge masks into a frame's cached record instead of replacing it.
+ *
+ * Click/box responses and propagation SSE events carry only the objects
+ * involved in that result. Writing them through `putMasks` would erase the
+ * other objects' masks from the cached record — which `loadSessionMasksSmart`
+ * then serves as fresh on the next session load, making those objects appear
+ * deleted even though the server still has them. Merging against the existing
+ * record (memory first, IDB fallback) preserves them.
+ */
+export const mergeMasks = async (
+  sessionId: string,
+  frameIdx: number,
+  masks: Record<number, MaskResult>,
+  memoryOnly: boolean,
+): Promise<void> => {
+  const existing = await getCachedMasks(sessionId, frameIdx);
+  const merged = existing ? { ...existing, ...masks } : masks;
+  if (memoryOnly) {
+    putMasksMemoryOnly(sessionId, frameIdx, merged);
+  } else {
+    await putMasks(sessionId, frameIdx, merged);
+  }
+};
+
+/**
  * Bulk-write all in-memory entries for a session to IndexedDB.
  * Called after propagation completes to persist results.
  */

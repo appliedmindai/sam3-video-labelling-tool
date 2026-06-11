@@ -31,6 +31,7 @@ import {
   getCachedMasks,
   putMasks,
   putMasksMemoryOnly,
+  mergeMasks,
   flushToIDB,
   clearSessionMemory,
   evictSession,
@@ -1305,7 +1306,9 @@ function App() {
       next.set(result.frame_idx, merged);
       return next;
     });
-    // Write-through to mask cache
+    // Write-through to mask cache — merge, never replace: result.masks holds
+    // only the objects in this result, and replacing the cached record would
+    // erase the other objects' masks for this frame.
     if (sessionId) {
       const frameMasksForCache: Record<number, MaskResult> = {};
       for (const [objIdStr, maskData] of Object.entries(result.masks)) {
@@ -1314,14 +1317,15 @@ function App() {
           : (result.source_keyframe !== undefined ? result.source_keyframe : null);
         frameMasksForCache[Number(objIdStr)] = { ...maskData, source_keyframe: sourceKf };
       }
-      // Read via ref: this function is captured by handlePropagate's memoized
-      // onFrame closure, where the `propagating` state is stale-false for the
-      // entire run.
-      if (propagatingRef.current) {
-        putMasksMemoryOnly(sessionId, result.frame_idx, frameMasksForCache);
-      } else {
-        putMasks(sessionId, result.frame_idx, frameMasksForCache).catch(() => {});
-      }
+      // Read propagating via ref: this function is captured by handlePropagate's
+      // memoized onFrame closure, where the `propagating` state is stale-false
+      // for the entire run.
+      mergeMasks(
+        sessionId,
+        result.frame_idx,
+        frameMasksForCache,
+        propagatingRef.current,
+      ).catch(() => {});
     }
   }
 
