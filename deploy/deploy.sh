@@ -412,6 +412,9 @@ step_deploy() {
   #   --max-instances 1       stateful service: GPU model + sessions in memory
   #   --concurrency 8         lets frame fetches run during a propagation SSE
   #   --min-instances 0       scale to zero when idle (GCS keeps the data)
+  #   --use-http2             nginx listens h2c (`listen 8080 http2`); without
+  #                           this Cloud Run speaks HTTP/1.1 and every request
+  #                           fails with "protocol error"
   #   --allow-unauthenticated the shared password is the gate, not IAM
   gcloud run deploy "$SERVICE" \
     --image "$IMAGE" \
@@ -428,6 +431,7 @@ step_deploy() {
     --max-instances 1 \
     --no-cpu-throttling \
     --port 8080 \
+    --use-http2 \
     --allow-unauthenticated \
     --set-env-vars "SEGMENT_MODE=cloud,GCS_BUCKET=$SESSIONS_BUCKET,SAM3_BACKEND=native,AUTH_PASSWORD=$PASSWORD"
 
