@@ -521,8 +521,18 @@ cmd_smoke() {
   pw=$(get_deployed_password)
   say "smoke-testing $url (first request may take ~90s on GPU cold start)"
 
+  # Cold start: while the container boots, Cloud Run / nginx can answer
+  # 5xx for a short window (nginx is up before gunicorn listens). Retry
+  # through it instead of failing the whole smoke run on the first 502.
   say "1/3 unauthenticated request is rejected"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 180 "$url/api/health")
+  local code="" attempt
+  for attempt in $(seq 1 12); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 180 "$url/api/health")
+    case "$code" in
+      5*) say "  got $code (cold start, attempt $attempt/12) — retrying in 10s"; sleep 10 ;;
+      *)  break ;;
+    esac
+  done
   [ "$code" = "401" ] || die "expected 401 without token, got $code"
 
   # Capture bodies in vars rather than piping to grep -q: under pipefail,
