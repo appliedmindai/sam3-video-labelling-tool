@@ -47,7 +47,7 @@ Cloud mode: `g.bucket` is set per-request by a `before_request` hook from the `G
 
 ## User Flows
 
-Full flow catalog, global negative invariants (N1–N10), test fixture, and the
+Full flow catalog, global negative invariants (N1–N11), test fixture, and the
 verification harness live in **[USER-FLOWS.md](USER-FLOWS.md)**.
 
 **After any behavioral change:** look up the touched files in the harness's

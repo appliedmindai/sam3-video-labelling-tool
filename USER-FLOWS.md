@@ -61,9 +61,9 @@ Flow IDs are stable and never renumbered (see Maintenance rules).
 
 ---
 
-## Global negative invariants (N1–N10)
+## Global negative invariants (N1–N11)
 
-This document defines two kinds of negative checks: **global invariants** (N1–N10, this section) and **per-flow Must NOT lines** (which may reference global invariants by ID). Global invariants are stated once here, referenced by ID from individual flows.
+This document defines two kinds of negative checks: **global invariants** (N1–N11, this section) and **per-flow Must NOT lines** (which may reference global invariants by ID). Global invariants are stated once here, referenced by ID from individual flows.
 
 - **N1** Propagation only touches targeted objects — propagating object(s) must not create, modify, or delete masks for any object not in the propagation set.
   _Check:_ byte-compare non-target objects' RLE strings in `masks.json` before/after propagation.
@@ -95,6 +95,13 @@ This document defines two kinds of negative checks: **global invariants** (N1–
 
 - **N10** Multi-object reset+replay loses no prompts — every selected object's prompts are replayed from disk after `_reset_inference_state`.
   _Check:_ after multi-object propagation, every selected object has masks on the new frames; `prompts.json` byte-identical.
+
+- **N11** Auth is all-or-nothing — when `AUTH_PASSWORD` is set, no API
+  endpoint (including `/api/health`) responds without a valid
+  `X-Auth-Token`; when unset, no endpoint demands one. The password never
+  appears in URLs (query params leak into request logs).
+  _Check:_ `backend/tests/test_auth.py` covers the 401/200 matrix; grep
+  `frontend/src` for `X-Auth-Token` — it must only travel as a header.
 
 ---
 
@@ -434,6 +441,7 @@ Shallow coverage for flows not fully elaborated in Tier 1. One row each; deep ve
 | UF-1.3 | Import session entry point | `VideoUpload.tsx` shows an Import section with a zip file picker and an Import button; clicking it calls `importSession` in `api.ts` (XHR upload to `POST /api/export/import-session`), then auto-resumes the new session via `POST /api/session/resume/<new_id>`; deep coverage in UF-8.2. | Button is enabled only after a `.zip` file is chosen; a second import while one is in-flight shows progress %, not a second trigger. |
 | UF-1.4 | Delete session | Clicking the trash icon on a session card calls `DELETE /api/video/sessions/<session_id>`; the backend removes the session directory from disk (and the GCS prefix in cloud mode); the frontend evicts any cached frames from IndexedDB via `evictSession` in `maskCache.ts` and removes the card from the list. | Deleting session A must not touch the session directories or IndexedDB entries of any other session. |
 | UF-1.6 | Cancel extraction/init job | The Cancel button in `PipelineProgress.tsx` calls `POST /api/job/cancel`; the backend signals the running pipeline to stop and `ServiceState` returns to `idle`; the frontend shows the session list. | After cancel, `GET /api/status` returns `phase: "idle"` within the poll budget (N8); no half-extracted session blocks a subsequent upload. |
+| UF-1.7 | Password gate (cloud deploys) | When the backend has `AUTH_PASSWORD` set, any 401 response triggers `onUnauthorized` in `api.ts`; `App.tsx` renders `PasswordGate.tsx`, which verifies the entered password against `GET /api/health` (distinguishing wrong password from unreachable server), persists it to `localStorage["sam3-auth-token"]` via `setAuthToken`, then calls `refetchStatus` to resume normal routing. All requests (fetch via `apiFetch`, both XHR uploads, the keepalive flush beacon) carry `X-Auth-Token`. | The gate never appears in local dev (no `AUTH_PASSWORD` ⇒ no 401s); a wrong password shows an inline error without storing anything; the password is sent only as a header, never in a URL (N11). |
 | UF-2.1 | Create class | `POST /api/session/classes/<session_id>` with `{name, color}`; `add_class` in `session_manager.py` appends a new entry with the next sequential integer `id` and returns it; the frontend adds it to React state via `persistState`. | The new class's `id` equals `max(existing ids) + 1` (or 1 if no classes exist); `state.json` on disk reflects the addition. |
 | UF-2.2 | Rename class | `PUT /api/session/classes/<session_id>/<class_id>` with `{name}`; `update_class` in `session_manager.py` updates only the `name` field. | All other class fields (id, color) and all object `class_id` references are unchanged in `state.json`. |
 | UF-2.3 | Change class color | `PUT /api/session/classes/<session_id>/<class_id>` with `{color}`; the canvas and sidebar immediately re-render masks and labels in the new color. | Color update does not alter mask data or prompt data; only `state.json` changes. |
@@ -492,6 +500,8 @@ After any change, look up every touched file below, collect the listed flow IDs 
 | `frontend/src/components/VideoUpload.tsx`, `frontend/src/components/ExportDialog.tsx`, `frontend/src/components/ExportSessionDialog.tsx` | UF-1.1, UF-1.3, UF-1.4, UF-8.1, UF-8.2 | — import/export entry points, delete session button |
 | `frontend/src/maskCache.ts`, `frontend/src/frameCache.ts` | UF-11.1, UF-11.2, UF-11.3, UF-1.2 | — IDB version keys, evict-session scope, `loadSessionMasksSmart` stale-ratio logic |
 | `frontend/src/hooks/useServiceStatus.ts` | UF-12, UF-1.1, UF-1.2 | N8 — polling interval changes affect session-loss detection latency |
+| `backend/app/__init__.py` (auth hook), `frontend/src/components/PasswordGate.tsx` | UF-1.7 — plus a spot-check that one authenticated flow still works end-to-end (e.g. UF-1.1) | N11 |
+| `deploy/deploy.sh`, `cloudbuild-native.yaml`, `DEPLOY.md`, `deploy/README.md` | Deploy smoke set (after the next real deploy) | N11 — `smoke` asserts the 401-without-token contract |
 | `frontend/src/components/ThemeToggle.tsx` | UF-9.1 | — localStorage key, system-preference fallback |
 | `frontend/src/components/ClassChoiceDialog.tsx` | UF-2.13 | — orphan-object reassignment dialog |
 
@@ -505,11 +515,11 @@ A file not listed here ⇒ add a row in the same PR (Maintenance rule 4).
 
 ## Deploy smoke set
 
-Run after every deploy, against the deployed URL — step 0: `curl $URL/api/status` returns `phase: "idle"`.
+Run after every deploy, against the deployed URL — step 0 is automated: `./deploy/deploy.sh smoke`. For manual curls, every request needs `-H "X-Auth-Token: $(./deploy/deploy.sh password)"`.
 
 | # | Flow(s) | What it verifies |
 |---|---|---|
-| 0 | — | `GET $URL/api/status` returns `{"phase": "idle", ...}` — service is up |
+| 0 | UF-1.7 | `./deploy/deploy.sh smoke` — unauthenticated `GET /api/health` returns 401; with `X-Auth-Token`, health returns `ok` and `GET /api/status` returns `{"phase": "idle", ...}` |
 | 1 | UF-1.1 | Upload a new video via the UI; progress bar advances through extraction and initialization; annotation UI appears |
 | 2 | UF-1.1 (tab-close during extraction) | Close the tab during extraction, reopen — progress bar resumes at the correct phase |
 | 3 | UF-1.2 (tab-close in annotation UI) | Close the tab while in the annotation UI, reopen — auto-resumes into the annotation UI |
@@ -518,6 +528,7 @@ Run after every deploy, against the deployed URL — step 0: `curl $URL/api/stat
 | 6 | UF-4.2 | Shift+click two objects; propagate — both objects tracked simultaneously |
 | 7 | UF-1.6 | Click Cancel during model init (`POST /api/job/cancel`); returns to session list; `GET /api/status` shows idle |
 | 8 | UF-1.5 | Close session; `GET /api/status` returns `{"phase": "idle", "session_id": null}` |
+| 9 | UF-1.7 | Open the URL in a fresh browser profile — the password gate appears; a wrong password shows an inline error; the printed password unlocks and survives a reload |
 
 ---
 
