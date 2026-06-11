@@ -8,32 +8,40 @@ steps:
       - '-c'
       - 'mkdir -p models/sam3 && gsutil -m cp gs://${_MODELS_BUCKET}/sam3/* models/sam3/'
 
-  # Pull previous image for Docker layer cache. For code-only changes
-  # (backend/frontend), this reuses the heavy layers (PyTorch, SAM3,
-  # Flash Attention, model weights) and cuts build time from ~20 min
-  # to ~2-3 min. Allowed to fail on first build or after image prune.
+  # Pull the rolling cache tag (:latest) for Docker layer cache. The build
+  # itself is tagged by source hash, so the hash tag never pre-exists;
+  # :latest always points at the previous successful build. For code-only
+  # changes this reuses the heavy layers (PyTorch, SAM3, Flash Attention,
+  # model weights) and cuts build time from ~20 min to ~2-3 min. Allowed
+  # to fail on first build or after image prune.
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
     args:
       - '-c'
-      - 'docker pull ${_IMAGE} || true'
+      - 'docker pull ${_CACHE_IMAGE} || true'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '--cache-from'
-      - '${_IMAGE}'
+      - '${_CACHE_IMAGE}'
       - '-f'
       - 'Dockerfile.native'
       - '-t'
       - '${_IMAGE}'
+      - '-t'
+      - '${_CACHE_IMAGE}'
       - '.'
 
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', '${_IMAGE}']
 
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_CACHE_IMAGE}']
+
 images:
   - '${_IMAGE}'
+  - '${_CACHE_IMAGE}'
 
 options:
   machineType: 'E2_HIGHCPU_32'
@@ -41,9 +49,10 @@ options:
 
 timeout: '2400s'
 
-# Override these per-project:
+# Override these per-project (deploy/deploy.sh does this automatically):
 #   gcloud builds submit --config=cloudbuild-native.yaml \
-#     --substitutions=_IMAGE=REGION-docker.pkg.dev/PROJECT/REPO/sam3-native:latest,_MODELS_BUCKET=YOUR-MODELS-BUCKET
+#     --substitutions=_IMAGE=...:SRC_HASH,_CACHE_IMAGE=...:latest,_MODELS_BUCKET=YOUR-MODELS-BUCKET
 substitutions:
   _IMAGE: 'us-central1-docker.pkg.dev/YOUR_PROJECT/cloud-run-images/sam3-native:latest'
+  _CACHE_IMAGE: 'us-central1-docker.pkg.dev/YOUR_PROJECT/cloud-run-images/sam3-native:latest'
   _MODELS_BUCKET: 'YOUR-MODELS-BUCKET'
