@@ -22,7 +22,7 @@ cd frontend && npx tsc --noEmit  # Type check only
 cd backend && python3 -m pytest tests/ -v
 
 # Conda environment
-eval "$(/opt/homebrew/bin/conda shell.zsh hook)" && conda activate sam3-annotator
+eval "$(/opt/homebrew/bin/conda shell.zsh hook)" && conda activate sam2-annotator  # env name predates the SAM3 rename
 ```
 
 ## Architecture

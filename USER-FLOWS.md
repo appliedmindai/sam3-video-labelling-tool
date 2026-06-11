@@ -32,7 +32,7 @@ session, each `[BROWSER]` step is reported NOT RUN and appended to the
 **SSE steps:** always use `curl -sN` (`--no-buffer`) when consuming `text/event-stream` responses; without `-N`, curl buffers piped output and events appear late or not at all. Terminate early with `timeout <secs> curl -sN ...` or by killing the process.
 
 **Environment:** local dev (`make dev`: Flask :5555 + Vite :5173, conda env
-`sam3-annotator`, MPS). Cloud-mode-only paths (GCS sync, Cloud Run lifecycle)
+`sam2-annotator` — note: the env name predates the SAM3 rename, MPS). Cloud-mode-only paths (GCS sync, Cloud Run lifecycle)
 cannot be fully verified locally — see "Cloud mode blind spots" in CLAUDE.md;
 mark those steps NOT RUN locally and use the Deploy smoke set after deploys.
 
@@ -107,7 +107,7 @@ tests/fixtures/harness/
 └── README.md             # how goldens were made, how to regenerate
 ```
 
-Assets are committed in a follow-up commit; until then, fixture-dependent steps report NOT RUN.
+All fixture assets are committed. The sample video is the first 8 s of `IMG_4130.MOV` (Breville Barista Express — the RF-DETR dataset v2 source); goldens were generated on MPS on 2026-06-10 (see the fixture README for the full recipe). Fixture objects: obj 1 "pressure gauge" (click), obj 2 "portafilter" (box), keyframe 0.
 
 **Comparison rules:**
 
@@ -192,7 +192,7 @@ Assets are committed in a follow-up commit; until then, fixture-dependent steps 
 
 **Verify:**
 1. `[DISK]` Snapshot `masks.json` and `prompts.json` for the open session before any clicks. → Expect: snapshots saved.
-2. `[API]` `curl -s -X POST http://localhost:5555/api/segment/click -H "Content-Type: application/json" -d '{"session_id":"<session_id>","frame_idx":0,"obj_id":<obj_1_id>,"points":[<fixture_click_xy_obj1>],"labels":[1]}'` → Expect: HTTP 200; response JSON has `frame_idx: 0`, `masks` key containing `"<obj_1_id>"`, and the RLE decodes to a non-empty binary mask (decode with `tests/fixtures/harness/iou.py`'s decoder — the backend's RLE format: LEB128 delta, column-major — and confirm the mask is non-empty); IoU vs golden keyframe mask ≥ 0.80 (NOT RUN until fixture lands).
+2. `[API]` `curl -s -X POST http://localhost:5555/api/segment/click -H "Content-Type: application/json" -d '{"session_id":"<session_id>","frame_idx":0,"obj_id":<obj_1_id>,"points":[<fixture_click_xy_obj1>],"labels":[1]}'` → Expect: HTTP 200; response JSON has `frame_idx: 0`, `masks` key containing `"<obj_1_id>"`, and the RLE decodes to a non-empty binary mask (decode with `tests/fixtures/harness/iou.py` — the backend encodes masks as pycocotools COCO compressed RLE via `_encode_mask` in `mask_storage.py`; iou.py uses the same library — and confirm the mask is non-empty); IoU vs golden keyframe mask ≥ 0.80 (NOT RUN until fixture lands).
 3. `[DISK]` Inspect `prompts.json` → Expect: `prompts["0"]["<obj_1_id>"]` has `type: "click"`, `points` matching the submitted coordinates, `labels: [1]`. Inspect `masks.json` → Expect: `masks["0"]["<obj_1_id>"]` entry is present. All other objects' RLE strings are byte-identical to the pre-click snapshot.
 4. `[API]` DELETE the mask for obj 1 on the keyframe (`DELETE /api/session/masks/<session_id>/0/<obj_1_id>`), re-POST the step-2 click for obj 1, and compare the returned RLE against the step-2 response → Expect: IoU ≥ 0.99 via `iou.py` (N3) (NOT RUN until fixture lands).
 5. `[BROWSER]` With the Click tool active and the target class selected, click the fixture's canonical click coordinates for object 1 → Expect: a colored mask overlay appears on the canvas in the class color; a colored dot marks the click position; status bar reads "Ready".

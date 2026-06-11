@@ -1,0 +1,19 @@
+{
+  "video": "sample.mp4",
+  "video_md5": "a6a3c6eeb521fee3e51d174a4772fdfb",
+  "fps": 5,
+  "frame_count": 40,
+  "frame_size": [360, 640],
+  "keyframe": 0,
+  "objects": [
+    {"obj_id": 1, "class": "pressure gauge", "click": [160, 296], "box": null},
+    {"obj_id": 2, "class": "portafilter", "click": null, "box": [168, 345, 225, 460]}
+  ],
+  "text_query": "pressure gauge",
+  "expected_text_detections": 1,
+  "expected_object_count": 2,
+  "mask_frame_count": 40,
+  "bbox_padding": {"1": {"0": {"top": 10, "bottom": 10, "left": 5, "right": 5}}},
+  "iou_thresholds": {"vs_golden": 0.80, "repeat_click": 0.99},
+  "propagation_sample_frames": [10, 25, 39]
+}
