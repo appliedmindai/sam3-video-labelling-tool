@@ -15,6 +15,7 @@ import {
   putSessionState,
   StateVersionConflictError,
   getSessionState,
+  loadSessionMasks,
   loadSessionMasksSmart,
   loadFrameMasks,
   fetchMaskVersions,
@@ -388,7 +389,13 @@ function App() {
     }
     let masksLoadedOk = false;
     try {
-      const { masks: savedMasks, versions } = await loadSessionMasksSmart(sid);
+      // Session open always re-syncs from the server: evict the session's
+      // cached mask records and fetch everything fresh. The IDB cache is a
+      // within-session accelerator only — trusting it across opens served
+      // stale records as current (pre-mergeMasks poisoned caches were
+      // version-stamped fresh and showed masks as deleted).
+      await evictSession(sid);
+      const { masks: savedMasks, versions } = await loadSessionMasks(sid);
       // Build per-frame obj_id index from full dataset before evicting
       const index = new Map<number, Set<number>>();
       for (const [frameStr, objMasks] of Object.entries(savedMasks)) {
