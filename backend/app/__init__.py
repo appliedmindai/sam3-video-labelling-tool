@@ -2,7 +2,7 @@ import logging
 import os
 import time
 
-from flask import Flask, g, request
+from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 
 from app.logging_config import configure_logging
@@ -110,6 +110,24 @@ def create_app():
     CORS(app)
     app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
 
+    # Shared-password auth for cloud deploys. When AUTH_PASSWORD is set
+    # (deploy/deploy.sh sets it on the Cloud Run service), every request —
+    # including /api/health, whose heartbeat keeps the billed GPU container
+    # alive — must carry a matching X-Auth-Token header. Unset → no-op
+    # (local dev, tests). OPTIONS is exempt: CORS preflights never carry
+    # custom headers.
+    auth_password = os.environ.get("AUTH_PASSWORD", "")
+    if auth_password:
+        import hmac
+
+        @app.before_request
+        def _check_auth():
+            if request.method == "OPTIONS":
+                return None
+            token = request.headers.get("X-Auth-Token", "")
+            if not hmac.compare_digest(token, auth_password):
+                return jsonify({"error": "unauthorized"}), 401
+
     # Cloud mode stores sessions in a single GCS bucket (GCS_BUCKET env var).
     # Routes read it from g.bucket on every request; None in local mode.
     from app import config as app_config
@@ -121,9 +139,10 @@ def create_app():
         else:
             g.bucket = None
 
-    # Health endpoint — no auth, no SAM3 lock, always responds instantly.
-    # Used by frontend heartbeat for keepalive + boot detection.
-    from flask import jsonify
+    # Health endpoint — no SAM3 lock, always responds instantly. Used by
+    # the frontend heartbeat for keepalive + boot detection, and by the
+    # PasswordGate to verify a candidate password. Requires X-Auth-Token
+    # like everything else when AUTH_PASSWORD is set.
     from app.config import BOOT_ID, BOOT_TIME
 
     @app.route("/api/health")
