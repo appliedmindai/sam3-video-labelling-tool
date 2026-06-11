@@ -70,10 +70,10 @@ def _build_coco_annotations(state, masks, image_filenames, image_width, image_he
     annotations = []
     ann_id = 1
     for frame_idx, filename in enumerate(image_filenames):
-        image_id = frame_idx + 1
-        images.append({"id": image_id, "file_name": filename, "width": image_width, "height": image_height})
         if frame_idx not in masks:
             continue
+        image_id = frame_idx + 1
+        frame_annotations = []
         for obj_id, mask_entry in masks[frame_idx].items():
             # Handle both old format (bare ndarray) and new format (mask, source_keyframe)
             if isinstance(mask_entry, tuple):
@@ -101,8 +101,12 @@ def _build_coco_annotations(state, masks, image_filenames, image_width, image_he
             class_name = class_id_to_name.get(class_id)
             if class_name:
                 ann["noun_phrase"] = class_name
-            annotations.append(ann)
+            frame_annotations.append(ann)
             ann_id += 1
+        # Only frames that produced at least one annotation appear in images[] (N7)
+        if frame_annotations:
+            images.append({"id": image_id, "file_name": filename, "width": image_width, "height": image_height})
+            annotations.extend(frame_annotations)
     categories = [{"id": c["id"], "name": c["name"], "supercategory": "object"} for c in state["classes"]]
     return {
         "info": {"description": "SAM 3 Annotation Export", "version": "1.0", "year": datetime.now().year, "date_created": datetime.now().strftime("%Y-%m-%d")},
@@ -111,14 +115,17 @@ def _build_coco_annotations(state, masks, image_filenames, image_width, image_he
 
 
 def export_coco(session_dir, state, masks, output_dir, bbox_padding_pct=0):
+    # Clear stale files from a previous export of the same session (N7)
+    shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     frames_dir = os.path.join(session_dir, "frames")
     filenames = sorted(f for f in os.listdir(frames_dir) if f.endswith(".jpg"))
-    for f in filenames:
-        shutil.copy2(os.path.join(frames_dir, f), os.path.join(output_dir, f))
     first_frame = Image.open(os.path.join(frames_dir, filenames[0]))
     w, h = first_frame.size
     coco = _build_coco_annotations(state, masks, filenames, w, h, bbox_padding_pct=bbox_padding_pct)
+    for image in coco["images"]:
+        f = image["file_name"]
+        shutil.copy2(os.path.join(frames_dir, f), os.path.join(output_dir, f))
     with open(os.path.join(output_dir, "_annotations.coco.json"), "w") as f:
         json.dump(coco, f, indent=2)
     return output_dir

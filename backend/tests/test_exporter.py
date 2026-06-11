@@ -124,6 +124,48 @@ def test_export_coco(mock_session, tmp_path):
     assert os.path.isfile(os.path.join(output_dir, "00000.jpg"))
 
 
+def test_export_coco_only_annotated_frames(mock_session, tmp_path):
+    """COCO export contains only annotated frames — in images[], and as files (N7)."""
+    session_dir, state, masks = mock_session
+    # Annotate only frames 0, 2, 4
+    masks = {k: v for k, v in masks.items() if k in (0, 2, 4)}
+    output_dir = str(tmp_path / "coco_sparse")
+    export_coco(session_dir, state, masks, output_dir)
+    with open(os.path.join(output_dir, "_annotations.coco.json")) as f:
+        coco = json.load(f)
+    assert len(coco["images"]) == 3
+    assert {i["file_name"] for i in coco["images"]} == {"00000.jpg", "00002.jpg", "00004.jpg"}
+    # Every annotation references an image that exists in images[]
+    image_ids = {i["id"] for i in coco["images"]}
+    assert all(a["image_id"] in image_ids for a in coco["annotations"])
+    # Only annotated frames' files are in the export dir
+    jpgs = sorted(f for f in os.listdir(output_dir) if f.endswith(".jpg"))
+    assert jpgs == ["00000.jpg", "00002.jpg", "00004.jpg"]
+
+
+def test_export_coco_reexport_clears_stale_files(mock_session, tmp_path):
+    """Re-exporting into the same output dir must not leak files from a prior export (N7)."""
+    session_dir, state, masks = mock_session
+    output_dir = str(tmp_path / "coco_reuse")
+    export_coco(session_dir, state, masks, output_dir)  # all 5 frames
+    sparse = {k: v for k, v in masks.items() if k in (0, 2)}
+    export_coco(session_dir, state, sparse, output_dir)  # now only 2
+    jpgs = sorted(f for f in os.listdir(output_dir) if f.endswith(".jpg"))
+    assert jpgs == ["00000.jpg", "00002.jpg"]
+
+
+def test_export_coco_frame_without_valid_annotations_excluded(mock_session, tmp_path):
+    """A frame whose only masks are empty/classless yields no image entry."""
+    session_dir, state, masks = mock_session
+    masks = {0: masks[0], 1: {99: np.zeros((240, 320), dtype=np.uint8)}}  # obj 99 has no class
+    output_dir = str(tmp_path / "coco_classless")
+    export_coco(session_dir, state, masks, output_dir)
+    with open(os.path.join(output_dir, "_annotations.coco.json")) as f:
+        coco = json.load(f)
+    assert len(coco["images"]) == 1
+    assert coco["images"][0]["file_name"] == "00000.jpg"
+
+
 def test_export_coco_with_per_keyframe_padding(mock_session, tmp_path):
     """Per-keyframe padding with bare ndarrays (old format) falls back to frame_idx lookup."""
     session_dir, state, masks = mock_session
