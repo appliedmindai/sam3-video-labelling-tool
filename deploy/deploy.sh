@@ -220,7 +220,7 @@ service_probe() {
   if err=$(gcloud run services describe "$SERVICE" --region "$REGION" \
       --project "$PROJECT" --format='value(metadata.name)' 2>&1); then
     echo "exists"
-  elif grep -qi "not[ _]*found\|could not be found\|does not exist" <<<"$err"; then
+  elif grep -qi "cannot find\|not[ _]*found\|could not be found\|does not exist" <<<"$err"; then
     echo "absent"
   else
     die "could not determine whether service $SERVICE exists (refusing to guess ownership): $err"
