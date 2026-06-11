@@ -27,5 +27,8 @@ exports/
 # Environment (local overrides)
 *.local
 
+# Deploy state (per-machine, contains resource bookkeeping)
+deploy/.deploy-state.json
+
 # Worktrees
 .worktrees/
