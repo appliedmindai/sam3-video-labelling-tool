@@ -94,7 +94,7 @@ After every deploy, run the **Deploy smoke set** in
 - `--max-instances 1` — the service is **stateful**: SAM3 inference state,
   local session dirs, and the GCS sync manager live in container memory.
   A second instance would not share that state.
-- `--concurrency 8` — matches gunicorn's threads; lets frame fetches run in
+- `--concurrency 8` — exceeds gunicorn's 4 threads so frame fetches run in
   parallel with a long propagation SSE stream. Lower values cause 429s.
 - `--min-instances 0` — scales to zero after ~30 min idle. GCS sync
   persists masks/prompts/state; the next visit re-downloads the session.

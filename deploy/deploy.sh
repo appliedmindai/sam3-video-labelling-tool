@@ -522,13 +522,18 @@ cmd_smoke() {
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 180 "$url/api/health")
   [ "$code" = "401" ] || die "expected 401 without token, got $code"
 
+  # Capture bodies in vars rather than piping to grep -q: under pipefail,
+  # grep -q exiting early can SIGPIPE curl and fail the pipeline spuriously.
+  local body
   say "2/3 /api/health with token"
-  curl -fsS --max-time 180 -H "X-Auth-Token: $pw" "$url/api/health" \
-    | grep -q '"ok"' || die "/api/health failed with token"
+  body=$(curl -fsS --max-time 180 -H "X-Auth-Token: $pw" "$url/api/health") \
+    || die "/api/health request failed"
+  grep -q '"ok"' <<<"$body" || die "/api/health unexpected body: $body"
 
   say "3/3 /api/status with token"
-  curl -fsS --max-time 60 -H "X-Auth-Token: $pw" "$url/api/status" \
-    | grep -q '"phase"' || die "/api/status failed with token"
+  body=$(curl -fsS --max-time 60 -H "X-Auth-Token: $pw" "$url/api/status") \
+    || die "/api/status request failed"
+  grep -q '"phase"' <<<"$body" || die "/api/status unexpected body: $body"
 
   say "smoke OK"
 }
