@@ -211,6 +211,22 @@ service_exists() {
     --project "$PROJECT" >/dev/null 2>&1
 }
 
+# Tri-state existence probe for ownership decisions: "exists", "absent",
+# or die. Unlike service_exists, a transient gcloud failure must NOT be
+# read as "absent" — that would mark a pre-existing service as
+# created-by-us and let `down` delete it later.
+service_probe() {
+  local err
+  if err=$(gcloud run services describe "$SERVICE" --region "$REGION" \
+      --project "$PROJECT" --format='value(metadata.name)' 2>&1); then
+    echo "exists"
+  elif grep -qi "not[ _]*found\|could not be found\|does not exist" <<<"$err"; then
+    echo "absent"
+  else
+    die "could not determine whether service $SERVICE exists (refusing to guess ownership): $err"
+  fi
+}
+
 service_url() {
   gcloud run services describe "$SERVICE" --region "$REGION" \
     --project "$PROJECT" --format='value(status.url)' 2>/dev/null || true
@@ -368,9 +384,9 @@ step_build() {
 
 step_deploy() {
   say "8/8 deploy to Cloud Run"
-  local current_image="" current_password="" had_service="false"
-  if service_exists; then
-    had_service="true"
+  local current_image="" current_password="" probe
+  probe=$(service_probe)   # dies on transient errors — never guesses ownership
+  if [ "$probe" = "exists" ]; then
     current_image=$(deployed_image)
     current_password=$(get_deployed_password)
   fi
@@ -416,7 +432,7 @@ step_deploy() {
     --allow-unauthenticated \
     --set-env-vars "SEGMENT_MODE=cloud,GCS_BUCKET=$SESSIONS_BUCKET,SAM3_BACKEND=native,AUTH_PASSWORD=$PASSWORD"
 
-  [ "$had_service" = "false" ] && state_set created_service "true"
+  [ "$probe" = "absent" ] && state_set created_service "true"
   state_set last_image "$IMAGE"
   state_set last_deploy_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
