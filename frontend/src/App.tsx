@@ -1203,8 +1203,12 @@ function App() {
       setTextPromptLoading(true);
       setStatus(`Detecting "${text}"...`);
       try {
-        // Auto-resolve class: use selected, match by name, or create new
+        // Auto-resolve class: use selected, match by name, or create new.
+        // Track the up-to-date class list locally — a class created here must
+        // be included in the persistState payload below, or the PUT would
+        // overwrite it away.
         let classId = selectedClassId;
+        let nextClasses = classes;
         if (classId == null) {
           const existing = classes.find(
             (c) => c.name.toLowerCase() === text.trim().toLowerCase(),
@@ -1216,7 +1220,14 @@ function App() {
             const hue = Math.floor(Math.random() * 360);
             const color = `hsl(${hue}, 70%, 50%)`;
             const cls = await createClass(sessionId, text, color);
-            setClasses((prev) => [...prev, cls]);
+            // createClass writes state.json server-side, bumping its version by
+            // one. Adopt that bump so the persistState PUT below carries the
+            // matching version — otherwise it 409s and reconcileFromServer
+            // wipes the just-detected objects (server has the class but not
+            // the objects yet).
+            stateVersionRef.current += 1;
+            nextClasses = [...classes, cls];
+            setClasses(nextClasses);
             setSelectedClassId(cls.id);
             classId = cls.id;
           }
@@ -1265,7 +1276,7 @@ function App() {
         // Multi-select all detected instances so user can propagate them all at once
         setSelectedObjIds(new Set(detectedIds));
 
-        persistState(classes, updatedObjs);
+        persistState(nextClasses, updatedObjs);
         setStatus(
           `Found ${result.instances.length} "${text}" instance(s) — all selected, ready to propagate`,
         );
@@ -1698,6 +1709,9 @@ function App() {
       try {
         const color = PALETTE[classes.length % PALETTE.length];
         const cls = await createClass(sessionId, name, color);
+        // createClass bumps state.json's version server-side; adopt it so the
+        // persistState PUT below matches and doesn't 409 → reconcile-wipe.
+        stateVersionRef.current += 1;
         const updatedClasses = [...classes, cls];
         const updatedObjects = objects.map((o) =>
           o.obj_id === orphanObjId ? { ...o, class_id: cls.id } : o,
