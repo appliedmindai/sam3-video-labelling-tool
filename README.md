@@ -6,7 +6,11 @@ The point of this tool is to use SAM3's segmentation power on your own videos qu
 
 ![Screenshot](docs/screenshot.gif)
 
-**New here? Watch the [video walkthrough](https://vimeo.com/1201234232)**, or read the [User Guide](docs/user-guide.md) — both cover every flow: login, upload, click/box/text segmentation, propagation, export, and session resume.
+**New here?** Watch the video walkthrough below, or read the [User Guide](docs/user-guide.md) — both cover every flow: login, upload, click/box/text segmentation, propagation, export, and session resume.
+
+<video src="https://github.com/appliedmindai/sam3-video-labelling-tool/raw/main/docs/video-walkthrough.mp4" controls width="100%"></video>
+
+_Walkthrough not playing inline? [Watch it on Vimeo](https://vimeo.com/1201234232)._
 
 ## Features
 
