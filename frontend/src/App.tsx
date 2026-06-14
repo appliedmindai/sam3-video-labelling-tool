@@ -219,6 +219,11 @@ function App() {
     // If we were in "ready" and now idle, the session was lost
     if (prev === "ready" && serviceStatus.phase === "idle") {
       sessionLoadedRef.current = null;
+      // Also clear the auto-load guard. Otherwise, when the SAME session is
+      // resumed and the backend returns to "ready", the auto-load effect sees
+      // hasLoadedSessionRef still pointing at it and short-circuits — leaving
+      // the UI stuck on the session list until a manual refresh.
+      hasLoadedSessionRef.current = null;
       setSessionId(null);
       setStatus("Session lost — server restarted. Please select a session.");
     }
