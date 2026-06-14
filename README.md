@@ -6,7 +6,7 @@ The point of this tool is to use SAM3's segmentation power on your own videos qu
 
 ![Screenshot](docs/screenshot.gif)
 
-**New here? The [User Guide](docs/user-guide.md) walks through every flow with short screen recordings** — login, upload, click/box/text segmentation, propagation, export, and session resume.
+**New here? Watch the [video walkthrough](https://vimeo.com/1201234232)**, or read the [User Guide](docs/user-guide.md) — both cover every flow: login, upload, click/box/text segmentation, propagation, export, and session resume.
 
 ## Features
 
