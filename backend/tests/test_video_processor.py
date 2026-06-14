@@ -181,3 +181,58 @@ def test_extract_frames_async_leftover_staging_is_cleaned(sample_video, tmp_path
     assert not os.path.isdir(staging_dir)
     # Junk file must not have survived — staging was wiped before the run.
     assert "junk.jpg" not in os.listdir(output_dir)
+
+
+def test_extract_frames_async_does_not_deadlock_on_large_ffmpeg_stderr(tmp_path, monkeypatch):
+    """ffmpeg emits a continuous progress/stat line to stderr at the default
+    log level. An undrained subprocess.PIPE deadlocks once that output exceeds
+    the ~64KB OS pipe buffer: ffmpeg blocks on write(), stops producing frames,
+    and never exits — extraction hangs mid-way. Short clips finish before the
+    buffer fills, which is why it stayed hidden until a full-length, high-fps
+    upload (IMG_4130.MOV at fps=15 hung at ~48%). stderr must therefore be
+    redirected to a file, never handed an undrained PIPE.
+    """
+    import app.services.video_processor as vp
+
+    monkeypatch.setattr(
+        vp, "get_video_info",
+        lambda p: {"duration": 10.0, "fps": 30.0, "width": 640, "height": 480},
+    )
+
+    captured = {}
+
+    class FakePopen:
+        def __init__(self, cmd, stdout=None, stderr=None):
+            captured["stderr"] = stderr
+            self.returncode = 0
+            # Mirror real Popen: .stderr is a stream only when stderr=PIPE.
+            self.stderr = None
+            staging = os.path.dirname(cmd[-1])
+            # Flood stderr well past the 64KB pipe buffer. A real file absorbs
+            # this; an undrained PIPE would block ffmpeg in production.
+            if hasattr(stderr, "write"):
+                stderr.write(b"x" * (256 * 1024))
+            for i in range(3):
+                open(os.path.join(staging, f"{i:05d}.jpg"), "wb").close()
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(vp.subprocess, "Popen", FakePopen)
+
+    output_dir = str(tmp_path / "frames")
+    count = vp.extract_frames_async("/fake/video.mp4", output_dir, fps=2)
+
+    assert captured["stderr"] is not subprocess.PIPE, (
+        "ffmpeg stderr must not be an undrained PIPE — it deadlocks on >64KB output"
+    )
+    assert count == 3
+    assert os.path.isdir(output_dir)
+    # The stderr log is a scratch sibling of output_dir and must be cleaned up.
+    assert not os.path.exists(output_dir + ".ffmpeg-stderr.log")

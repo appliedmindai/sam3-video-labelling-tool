@@ -137,6 +137,7 @@ All fixture assets are committed. The sample video is the first 8 s of `IMG_4130
 
 **Must NOT:**
 - Leave `GET /api/status` returning `phase: "extracting"` or `phase: "initializing"` after a pipeline failure — the phase must transition to `"error"` (N8) (induce: upload a non-video file — see UF-12 Verify).
+- Hand ffmpeg an undrained `subprocess.PIPE` for stderr in `extract_frames_async` (`video_processor.py`) — ffmpeg's continuous stderr stat line overflows the ~64KB OS pipe buffer on longer/higher-fps videos, blocking ffmpeg on write() so extraction hangs at a frozen `progress` mid-run (regression 2026-06-14: full IMG_4130.MOV at fps=15 froze at ~48%). stderr is redirected to a scratch file (`<output_dir>.ffmpeg-stderr.log`, removed in `finally`) and read back only on non-zero exit.
 - Create a session directory without `meta.json` — `meta.json` is written synchronously in `upload_video()` (`routes/video.py`) before `start_pipeline` is called.
 - Accept a second concurrent upload while a pipeline is running — `start_pipeline` returns `(False, reason)` and the route responds 409 with `{"error": reason}`.
 - Use a form field name other than `video` for the file and `fps` / `max_resolution` for the parameters (field names defined in `upload_video()` in `routes/video.py` and `uploadVideo` in `api.ts`).
@@ -484,6 +485,7 @@ After any change, look up every touched file below, collect the listed flow IDs 
 | `backend/app/routes/session.py`, `backend/app/services/session_manager.py` | UF-1.2, UF-2.1–2.13, UF-7.1, UF-7.2, UF-12 | N5, N8 |
 | `backend/app/services/gcs_sync.py`, `backend/app/services/gcs_storage.py` (cloud-mode paths) | UF-1.2, UF-1.4, UF-1.5, UF-7.2, UF-11.1, UF-11.2, UF-11.3 | N6 — plus CLAUDE.md "Cloud mode blind spots" |
 | `backend/app/services/pipeline.py`, `backend/app/routes/video.py` | UF-1.1, UF-1.4, UF-12 | N8 |
+| `backend/app/services/video_processor.py` | UF-1.1, UF-1.6, UF-12 | N8 — ffmpeg stderr must be drained/file-redirected (never undrained PIPE: deadlocks mid-extraction); SIGTERM kills registered ffmpeg procs |
 | `backend/app/routes/export.py`, `backend/app/services/exporter.py`, `backend/app/services/session_bundle.py` | UF-8.1, UF-8.2, UF-1.3 | N7 (note the recorded violation in N7) |
 | `backend/app/routes/status.py`, `backend/app/services/pipeline.py` (ServiceState) | UF-12, UF-1.1, UF-4.4 | N8, N9 — `POST /api/job/cancel` and `POST /api/status/dismiss-error` both live here |
 | `backend/app/services/session_lock.py` | All flows that use `session_io_lock` (UF-3.x, UF-4.x, UF-7.x, UF-8.x) | N8 — a deadlock here hangs the entire service |

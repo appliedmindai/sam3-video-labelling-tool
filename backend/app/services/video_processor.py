@@ -155,10 +155,19 @@ def extract_frames_async(
         os.path.join(staging_dir, "%05d.jpg"),
     ]
 
+    # ffmpeg emits a continuous progress/stat line to stderr at the default
+    # log level. An undrained subprocess.PIPE deadlocks once that output
+    # exceeds the ~64KB OS pipe buffer: ffmpeg blocks on write(), stops
+    # producing frames, and never exits — so extraction hangs mid-way on
+    # longer or higher-fps videos (short clips finish before the buffer fills,
+    # which is why this stayed hidden). Redirect stderr to a scratch file; it
+    # never blocks, and we read it back only if ffmpeg fails.
+    stderr_log_path = output_dir + ".ffmpeg-stderr.log"
+    stderr_file = open(stderr_log_path, "w+b")
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=stderr_file,
     )
     # R33: register so the SIGTERM handler can kill us directly
     # without waiting on the 0.5s cancel-event poll.
@@ -180,9 +189,11 @@ def extract_frames_async(
 
         # ffmpeg finished — check exit code
         if process.returncode != 0:
-            stderr_output = process.stderr.read().decode() if process.stderr else ""
+            stderr_file.flush()
+            stderr_file.seek(0)
+            stderr_output = stderr_file.read().decode(errors="replace")
             raise RuntimeError(
-                f"ffmpeg exited with code {process.returncode}: {stderr_output[:500]}"
+                f"ffmpeg exited with code {process.returncode}: {stderr_output[-500:]}"
             )
 
         frame_count = len([f for f in os.listdir(staging_dir) if f.endswith(".jpg")])
@@ -210,8 +221,12 @@ def extract_frames_async(
         raise
     finally:
         _unregister_proc(process)
-        if process.stderr:
-            process.stderr.close()
+        try:
+            stderr_file.close()
+        except Exception:
+            pass
+        if os.path.exists(stderr_log_path):
+            os.remove(stderr_log_path)
 
 
 def get_video_info(video_path: str) -> dict:
