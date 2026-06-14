@@ -37,3 +37,6 @@ deploy/.deploy-state.json
 scripts/user-guide-recorder/node_modules/
 scripts/user-guide-recorder/raw/
 scripts/user-guide-recorder/package-lock.json
+
+# Playwright MCP verification artifacts (screenshots, snapshots, console logs)
+.playwright-mcp/
