@@ -4,13 +4,9 @@ Annotate videos with [SAM 3.1](https://github.com/facebookresearch/sam3): click,
 
 The point of this tool is to use SAM3's segmentation power on your own videos quickly, without going through a third-party labeling service. It's at its best when you have an NVIDIA GPU — locally or as an on-demand L4 on Cloud Run. The Apple Silicon (MPS) build works, but it's too slow for productive annotation; treat it as a way to try the tool, not to do real labeling work.
 
-![Screenshot](docs/screenshot.gif)
+[![Watch the video walkthrough](docs/screenshot.gif)](https://vimeo.com/1201234232)
 
-**New here?** Watch the video walkthrough below, or read the [User Guide](docs/user-guide.md) — both cover every flow: login, upload, click/box/text segmentation, propagation, export, and session resume.
-
-<video src="https://github.com/appliedmindai/sam3-video-labelling-tool/raw/main/docs/video-walkthrough.mp4" controls width="100%"></video>
-
-_Walkthrough not playing inline? [Watch it on Vimeo](https://vimeo.com/1201234232)._
+**New here?** Click the preview above to watch the [video walkthrough](https://vimeo.com/1201234232) on Vimeo, or read the [User Guide](docs/user-guide.md) — both cover every flow: login, upload, click/box/text segmentation, propagation, export, and session resume.
 
 ## Features
 
