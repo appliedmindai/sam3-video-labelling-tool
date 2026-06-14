@@ -10,6 +10,7 @@ import threading
 import time
 
 from google.cloud import storage as gcs
+from google.api_core.exceptions import NotFound
 
 logger = logging.getLogger(__name__)
 
@@ -340,13 +341,23 @@ def delete_marker_blob(bucket_name: str, session_id: str, marker_name: str) -> N
 
 
 def delete_session_gcs(bucket_name: str, session_id: str) -> int:
-    """Delete all files for a session from GCS. Returns count deleted."""
+    """Delete all files for a session from GCS. Returns count deleted.
+
+    Idempotent and race-safe: a blob that vanishes between the list snapshot
+    and its delete — a concurrent GCSSyncManager flush, or a repeated delete —
+    is treated as already gone, not an error.
+    """
     client = _get_client()
     bucket = client.bucket(bucket_name)
 
     blobs = list(client.list_blobs(bucket, prefix=f"{session_id}/"))
+    deleted = 0
     for blob in blobs:
-        blob.delete()
+        try:
+            blob.delete()
+            deleted += 1
+        except NotFound:
+            pass  # already removed by a concurrent writer — nothing to do
 
-    logger.info("Deleted %d blobs for session %s from GCS", len(blobs), session_id)
-    return len(blobs)
+    logger.info("Deleted %d blobs for session %s from GCS", deleted, session_id)
+    return deleted
